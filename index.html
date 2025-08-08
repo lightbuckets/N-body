@@ -3,18 +3,18 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>N-Body Playground — v6.1 (Trackball Single-File)</title>
+  <title>N-Body Playground — v6.2 (Presets + Trackball)</title>
   <style>
     :root{ --bg:#0b1020; --text:#e6ebff; --muted:#8ea0d0; --accent:#6aa6ff; }
     *{box-sizing:border-box}
     html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif}
-    #wrap{display:grid;grid-template-columns:380px 1fr;height:100vh}
+    #wrap{display:grid;grid-template-columns:390px 1fr;height:100vh}
     #controls{background:linear-gradient(180deg,#0f1530 0%,#0b1020 100%);border-right:1px solid #1f2a4d;padding:14px 14px 80px;overflow:auto}
     h1{font-size:18px;margin:8px 0 6px}
     h2{font-size:13px;font-weight:700;margin:16px 0 8px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
     label{display:flex;align-items:center;gap:8px;font-size:14px;margin:8px 0;color:var(--text)}
     input[type="range"], select{width:100%}
-    input[type="number"]{width:100%;padding:6px;border:1px solid #33406b;border-radius:6px;background:#0c1430;color:var(--text)}
+    input[type="number"]{width:100%;padding:6px;border:1px solid #33406b;border-radius:6px;background:#0c1430;color:#e6ebff}
     .row{display:flex;gap:8px;align-items:center}
     .row > *{flex:1}
     .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:8px 10px;margin:4px 0;border:1px solid #33406b;border-radius:8px;background:#0c1430;color:#e6ebff;text-decoration:none;cursor:pointer;user-select:none}
@@ -22,6 +22,7 @@
     .btn.warn{border-color:#6a5a2b;background:#332911}
     .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
     .small{font-size:12px;color:#8ea0d0;line-height:1.4}
+    .stat{font-variant-numeric:tabular-nums}
     .divider{height:1px;background:#1f2a4d;margin:10px 0}
     #canvas{width:100%;height:100%;display:block;background:radial-gradient(600px 600px at center,#0c1226 0%,#070b19 60%,#050811 100%)}
     #overlay{position:absolute;right:12px;top:12px;z-index:5;padding:6px 8px;border-radius:8px;background:#141b36cc;border:1px solid #2a3a7a;color:#c9d4ff;font-size:12px;pointer-events:none}
@@ -53,33 +54,45 @@
 
       <div class="divider"></div>
 
-      <h2>Setup</h2>
-      <label class="row"><span>Preset</span>
-        <select id="preset"><option value="random">Random cloud</option><option value="disk">Spinning disk</option><option value="binary">Two-body + test</option><option value="solar">Mini solar</option></select>
+      <h2>Presets</h2>
+      <label class="row"><span>Setup</span>
+        <select id="preset">
+          <option value="random">Random Cloud (default)</option>
+          <option value="spiral">Spiral Galaxy</option>
+          <option value="bh">Black Hole + Stars</option>
+          <option value="solar_general">General Solar System</option>
+          <option value="solar_real">Solar System (approx.)</option>
+          <option value="disk">Spinning Disk</option>
+          <option value="binary">Two-body + test</option>
+        </select>
       </label>
+
+      <h2>Counts & Mass</h2>
       <div class="grid">
-        <label class="row"><span>N bodies</span><input id="nBodies" type="number" min="2" max="1200" step="1" value="200"></label>
+        <label class="row"><span>N bodies</span><input id="nBodies" type="number" min="2" max="2000" step="1" value="600"></label>
         <label class="row"><span>Seed</span><input id="seed" type="number" min="0" max="999999" step="1" value="42"></label>
       </div>
       <div class="grid">
-        <label class="row"><span>Mass min</span><input id="mMin" type="number" min="0.1" step="0.1" value="0.5"></label>
-        <label class="row"><span>Mass max</span><input id="mMax" type="number" min="0.1" step="0.1" value="3"></label>
+        <label class="row"><span>Mass min</span><input id="mMin" type="number" min="0.01" step="0.01" value="0.3"></label>
+        <label class="row"><span>Mass max</span><input id="mMax" type="number" min="0.01" step="0.01" value="2.5"></label>
       </div>
-      <label class="row"><span>Spawn radius</span><input id="spawnR" type="range" min="0.1" max="1.0" step="0.01" value="0.45"></label>
+      <label class="row"><span>Spawn radius</span><input id="spawnR" type="range" min="0.05" max="1.5" step="0.01" value="0.55"></label>
 
       <h2>Physics</h2>
-      <label class="row"><span>G</span><input id="G" type="number" step="0.001" value="1"></label>
       <div class="grid">
-        <label class="row"><span>Δt</span><input id="dt" type="number" step="0.001" value="0.02"></label>
-        <label class="row"><span>Softening ε</span><input id="eps" type="number" step="0.001" value="0.02"></label>
+        <label class="row"><span>G</span><input id="G" type="number" step="0.0001" value="1"></label>
+        <label class="row"><span>Δt</span><input id="dt" type="number" step="0.0005" value="0.012"></label>
       </div>
-      <label class="row"><span>Speed ×</span><input id="speed" type="range" min="0.25" max="5" step="0.25" value="1"></label>
+      <div class="grid">
+        <label class="row"><span>Softening ε</span><input id="eps" type="number" step="0.0005" value="0.02"></label>
+        <label class="row"><span>Speed ×</span><input id="speed" type="number" step="0.25" value="1"></label>
+      </div>
       <div class="grid">
         <label class="row"><span>Collisions</span>
-          <select id="collisions"><option value="none">Ignore</option><option value="merge" selected>Merge</option><option value="bounce">Elastic</option></select>
+          <select id="collisions"><option value="none" selected>Ignore</option><option value="merge">Merge</option><option value="bounce">Elastic</option></select>
         </label>
         <label class="row"><span>Bounds</span>
-          <select id="bounds"><option value="wrap">Wrap</option><option value="reflect">Reflect</option><option value="open" selected>Open</option></select>
+          <select id="bounds"><option value="open" selected>Open</option><option value="wrap">Wrap</option><option value="reflect">Reflect</option></select>
         </label>
       </div>
 
@@ -122,7 +135,7 @@
   </div>
 
   <div id="footerbar">
-    <div>Velocity-Verlet with Plummer softening. v6.1 with Trackball UI.</div>
+    <div>Velocity-Verlet with Plummer softening. v6.2 Trackball + Presets.</div>
     <div>© You.</div>
   </div>
 
@@ -160,15 +173,20 @@
       statStep: $('statStep'), statE: $('statE'), statP: $('statP'), statFPS: $('statFPS')
     };
 
+    // ----- Good startup defaults -----
     const DEFAULTS = {
-      preset:'random', nBodies:200, seed:42, mMin:0.5, mMax:3, spawnR:0.45,
-      G:1, dt:0.02, eps:0.02, speed:1, collisions:'merge', bounds:'open',
+      preset:'random', nBodies:600, seed:42, mMin:0.3, mMax:2.5, spawnR:0.55,
+      G:1, dt:0.012, eps:0.02, speed:1, collisions:'none', bounds:'open',
       trails:'short', radius:2
     };
+    function applyDefaults(){
+      Object.entries(DEFAULTS).forEach(([k,v])=>{ if(ctl[k]) ctl[k].value = String(v); });
+    }
 
     const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
 
-    let world = { bodies: [], step: 0, paused: false, cam:{x:0,y:0,scale:240,angle:0} };
+    // Camera state (trackball driven)
+    let world = { bodies: [], step: 0, paused: false, cam:{x:0,y:0,scale:280,angle:0} };
 
     // ---------- Trackball ----------
     const tb = document.getElementById('trackball');
@@ -182,91 +200,90 @@
       const w=tb.width, h=tb.height, r=Math.min(w,h)/2-2;
       tbc.clearRect(0,0,w,h);
       const cx=w/2, cy=h/2;
-
       const g = tbc.createRadialGradient(cx-0.3*r,cy-0.3*r, r*0.2, cx,cy, r);
       g.addColorStop(0,'#2a4cff'); g.addColorStop(0.6,'#0b1a44'); g.addColorStop(1,'#071025');
       tbc.fillStyle=g; tbc.beginPath(); tbc.arc(cx,cy,r,0,Math.PI*2); tbc.fill();
       tbc.strokeStyle='#2a3a7a'; tbc.lineWidth=1; tbc.stroke();
-
       tbc.strokeStyle='#3a4a8a'; tbc.lineWidth=0.5;
-      for(let i=-2;i<=2;i++){
-        const a=i*Math.PI/6;
-        tbc.beginPath();
-        for(let th=0;th<=64;th++){
-          const t=th/64*Math.PI*2;
-          const x=cx + r*Math.cos(t)*Math.cos(a);
-          const y=cy + r*Math.sin(t);
-          if(th===0) tbc.moveTo(x,y); else tbc.lineTo(x,y);
-        }
-        tbc.stroke();
-      }
+      for(let i=-2;i<=2;i++){ const a=i*Math.PI/6; tbc.beginPath();
+        for(let th=0;th<=64;th++){ const t=th/64*Math.PI*2; const x=cx + r*Math.cos(t)*Math.cos(a); const y=cy + r*Math.sin(t);
+          if(th===0) tbc.moveTo(x,y); else tbc.lineTo(x,y); } tbc.stroke(); }
       tbc.save(); tbc.translate(cx,cy); tbc.rotate(-world.cam.angle);
       tbc.beginPath(); tbc.strokeStyle='#cfe2ff'; tbc.lineWidth=2; tbc.arc(0,0,r-4,-0.15,0.15); tbc.stroke(); tbc.restore();
-
       tbc.beginPath(); tbc.strokeStyle='#5a7aff'; tbc.lineWidth=1; tbc.arc(cx,cy,r+4,0,Math.PI*2); tbc.stroke();
       const zoom01 = (Math.log(world.cam.scale)-Math.log(60))/(Math.log(4000)-Math.log(60));
       const zhAng = -Math.PI/2 + zoom01*2*Math.PI;
       tbc.beginPath(); tbc.strokeStyle='#d7e7ff'; tbc.lineWidth=2; tbc.arc(cx,cy,r+6, zhAng-0.12, zhAng+0.12); tbc.stroke();
-
-      const px = Math.max(-1,Math.min(1,world.cam.x));
-      const py = Math.max(-1,Math.min(1,world.cam.y));
+      const px = Math.max(-1,Math.min(1,world.cam.x)); const py = Math.max(-1,Math.min(1,world.cam.y));
       tbc.beginPath(); tbc.fillStyle='#9fffd8'; tbc.arc(cx + px*r*0.6, cy - py*r*0.6, 4, 0, Math.PI*2); tbc.fill();
     }
-    function updateTbLabels(){
-      tbAngleEl.textContent = Math.round(world.cam.angle*180/Math.PI) + '°';
-      tbZoomEl.textContent = Math.round(world.cam.scale);
-      tbXEl.textContent = world.cam.x.toFixed(2);
-      tbYEl.textContent = world.cam.y.toFixed(2);
-    }
-    function tbPos(e){
-      const rect = tb.getBoundingClientRect();
-      return { x:e.clientX-rect.left, y:e.clientY-rect.top, cx:rect.width/2, cy:rect.height/2, r:Math.min(rect.width,rect.height)/2-2 };
-    }
+    function updateTbLabels(){ tbAngleEl.textContent = Math.round(world.cam.angle*180/Math.PI) + '°'; tbZoomEl.textContent = Math.round(world.cam.scale); tbXEl.textContent = world.cam.x.toFixed(2); tbYEl.textContent = world.cam.y.toFixed(2); }
+    function tbPos(e){ const r = tb.getBoundingClientRect(); return { x:e.clientX-r.left, y:e.clientY-r.top, cx:r.width/2, cy:r.height/2, r:Math.min(r.width,r.height)/2-2 }; }
     let tbDragging=false;
     tb.addEventListener('mousedown',e=>{ tbDragging=true; e.preventDefault(); });
     window.addEventListener('mouseup',()=>{ tbDragging=false; });
     window.addEventListener('mousemove',e=>{
       if(!tbDragging) return;
-      const p = tbPos(e); const dx = p.x - p.cx, dy = p.y - p.cy; const ang = Math.atan2(dy, dx);
+      const p = tbPos(e), dx = p.x - p.cx, dy = p.y - p.cy, ang = Math.atan2(dy, dx);
       if(e.shiftKey){ world.cam.scale = clamp(world.cam.scale * Math.exp((-dy)*0.006), 60, 4000); }
       else if(e.altKey){ world.cam.x += dx/(p.r*8); world.cam.y -= dy/(p.r*8); }
       else { world.cam.angle = ang; }
       drawTrackball(); updateTbLabels();
     });
     tb.addEventListener('wheel',e=>{ e.preventDefault(); world.cam.scale = clamp(world.cam.scale * Math.exp(-e.deltaY*0.001), 60, 4000); drawTrackball(); updateTbLabels(); }, {passive:false});
-    tb.addEventListener('dblclick',()=>{ world.cam={x:0,y:0,scale:240,angle:0}; drawTrackball(); updateTbLabels(); });
+    tb.addEventListener('dblclick',()=>{ world.cam={x:0,y:0,scale:280,angle:0}; drawTrackball(); updateTbLabels(); });
 
     // ---------- Physics ----------
-    const palette=['#a4b9ff','#9fe2ff','#ffd27f','#ff9fb2','#d6ff9f','#c6a8ff','#9fffd8'];
-    const pick=i=>palette[i%palette.length];
+    const palette=['#a4b9ff','#9fe2ff','#ffd27f','#ff9fb2','#d6ff9f','#c6a8ff','#9fffd8']; const pick=i=>palette[i%palette.length];
     function seeded(seed){ let a=(seed>>>0)||1; return ()=>{ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,a|1); t^=t+Math.imul(t^t>>>7,t|61); return ((t^t>>>14)>>>0)/4294967296; }; }
+
     function createBodies(n, opts){
-      const out=[]; const { mMin=0.5, mMax=3, radius=0.45, preset='random' } = opts||{}; const r=radius; const G=parseFloat(ctl.G.value)||1;
+      const out=[]; const { mMin=0.5, mMax=3, radius=0.55, preset='random' } = opts||{}; const r=radius; const G=parseFloat(ctl.G.value)||1;
       const rnd = seeded(parseInt(ctl.seed.value,10)||42);
       function push(x,y,vx,vy,m,c){ out.push({x,y,vx,vy,ax:0,ay:0,m,color:c}); }
-      if(preset==='random'){
-        for(let i=0;i<n;i++){ const a=rnd()*2*Math.PI, rr=r*(0.2+0.8*Math.sqrt(rnd()));
-          const x=rr*Math.cos(a), y=rr*Math.sin(a);
-          const m=mMin + (mMax-mMin)*rnd();
-          push(x,y, (rnd()-0.5)*0.4, (rnd()-0.5)*0.4, m, pick(i)); }
+      if(preset==='random'){ // isotropic cloud
+        for(let i=0;i<n;i++){ const a=rnd()*2*Math.PI, rr=r*(0.1+0.9*Math.sqrt(rnd())); const x=rr*Math.cos(a), y=rr*Math.sin(a); const m=mMin+(mMax-mMin)*rnd();
+          push(x,y,(rnd()-0.5)*0.25,(rnd()-0.5)*0.25,m,pick(i)); }
+      }else if(preset==='spiral'){ // 2-arm logarithmic spiral
+        const arms=2, tight=0.35, rot=1.2;
+        for(let i=0;i<n;i++){ const arm=i%arms; const t=(i/n)*8*Math.PI; const rad=r*(0.1+0.9*i/n); const ang=arm*(Math.PI)+tight*t; const x=rad*Math.cos(ang), y=rad*Math.sin(ang);
+          const m=mMin+(mMax-mMin)*rnd();
+          // tangential velocity approximate flat rotation curve
+          const v=0.7*Math.sqrt(G*1.0/Math.max(rad,0.05));
+          const ax=Math.atan2(y,x);
+          push(x,y, -v*Math.sin(ax)*rot, v*Math.cos(ax)*rot, m, pick(i)); }
+        push(0,0,0,0,50,'#ffd27f'); // bulge
+      }else if(preset==='bh'){ // massive black hole + stars
+        const M=200; push(0,0,0,0,M,'#ffd27f');
+        for(let i=0;i<n;i++){ const rr=r*(0.2+0.8*Math.sqrt(rnd())); const a=rnd()*2*Math.PI; const x=rr*Math.cos(a), y=rr*Math.sin(a); const v=Math.sqrt(G*M/Math.max(rr,0.01))*0.95;
+          // small eccentricity
+          const e=(rnd()-0.5)*0.15; const vx= -v*Math.sin(a)*(1+e), vy= v*Math.cos(a)*(1-e);
+          push(x,y,vx,vy, mMin+(mMax-mMin)*rnd(), pick(i)); }
+      }else if(preset==='solar_general'){ // star + N planets
+        const starM = 300; push(0,0,0,0,starM,'#ffd27f');
+        const planets = Math.max(1, Math.min(12, n)); for(let i=0;i<planets;i++){ const a=rnd()*2*Math.PI; const rr=0.15+ (i+1)*0.09; const v=Math.sqrt(G*starM/rr);
+          const m=0.5 + rnd()*1.5; push(rr*Math.cos(a), rr*Math.sin(a), -v*Math.sin(a), v*Math.cos(a), m, pick(i)); }
+      }else if(preset==='solar_real'){ // rough 2D Solar System
+        // mass ratios (planet/sun) approximated
+        const sunM = 1.0; const pr = {Mercury:1.66e-7, Venus:2.45e-6, Earth:3.00e-6, Mars:3.23e-7, Jupiter:9.55e-4, Saturn:2.86e-4, Uranus:4.36e-5, Neptune:5.15e-5};
+        const AU=[0.39,0.72,1.0,1.52,5.20,9.54,19.2,30.1];
+        // scale AU to canvas units so Neptune ~ radius ~1.0
+        const scale = 1.2/30.1; // Neptune at ~1.2 radius
+        push(0,0,0,0,sunM*1000,'#ffd27f'); // beef up to dominate G=1
+        const names=['Mercury','Venus','Earth','Mars','Jupiter','Saturn','Uranus','Neptune'];
+        for(let i=0;i<names.length;i++){
+          const name=names[i]; const rr=AU[i]*scale; const a=rnd()*2*Math.PI;
+          const m = pr[name]*1000; // scaled relative to sun mass used
+          const v=Math.sqrt(G*(sunM*1000+m)/Math.max(rr,1e-4));
+          push(rr*Math.cos(a), rr*Math.sin(a), -v*Math.sin(a), v*Math.cos(a), Math.max(m,0.0001), pick(i));
+        }
       }else if(preset==='disk'){
-        for(let i=0;i<n;i++){ const rr=r*Math.sqrt(rnd()), a=rnd()*2*Math.PI;
-          const x=rr*Math.cos(a), y=rr*Math.sin(a);
-          const m=mMin + (mMax-mMin)*rnd();
-          const v=0.6*Math.sqrt(G*(i+1)/n/Math.max(rr,0.01));
-          push(x,y, -v*Math.sin(a), v*Math.cos(a), m, pick(i)); }
+        for(let i=0;i<n;i++){ const rr=r*Math.sqrt(rnd()), a=rnd()*2*Math.PI; const x=rr*Math.cos(a), y=rr*Math.sin(a); const m=mMin+(mMax-mMin)*rnd(); const v=0.6*Math.sqrt(G*(i+1)/n/Math.max(rr,0.01));
+          push(x,y,-v*Math.sin(a), v*Math.cos(a), m, pick(i)); }
         push(0,0,0,0, Math.max(mMax*10,20), '#ffd27f');
       }else if(preset==='binary'){
-        const M=Math.max(mMax*10,20); push(-0.2,0,0,-0.4,M,'#ffd27f'); push(0.2,0,0,0.4,M,'#ffd27f');
-        for(let i=0;i<n;i++){ const a=rnd()*2*Math.PI, rr=0.9*r*Math.sqrt(rnd());
-          const x=rr*Math.cos(a), y=rr*Math.sin(a);
-          const m=mMin + (mMax-mMin)*rnd();
-          push(x,y, (rnd()-0.5)*0.2, (rnd()-0.5)*0.2, m, pick(i)); }
-      }else if(preset==='solar'){
-        push(0,0,0,0,100,'#ffd27f');
-        const planets=Math.min(8, Math.max(1, Math.floor(n/20)));
-        for(let i=0;i<planets;i++){ const a=rnd()*2*Math.PI, rr=0.1+(i+1)*0.07; const v=Math.sqrt(G*100/rr);
-          push(rr*Math.cos(a), rr*Math.sin(a), -v*Math.sin(a), v*Math.cos(a), 1.5+0.2*i, pick(i)); }
+        const M=30; push(-0.2,0,0,-0.35,M,'#ffd27f'); push(0.2,0,0,0.35,M,'#ffd27f');
+        for(let i=0;i<n;i++){ const a=rnd()*2*Math.PI, rr=0.9*r*Math.sqrt(rnd()); const x=rr*Math.cos(a), y=rr*Math.sin(a); const m=mMin+(mMax-mMin)*rnd(); push(x,y,(rnd()-0.5)*0.2,(rnd()-0.5)*0.2,m,pick(i)); }
       }
       return out;
     }
@@ -342,7 +359,7 @@
 
     function reset(){
       const n=parseInt(ctl.nBodies.value,10)||200;
-      const mMin=parseFloat(ctl.mMin.value)||0.5, mMax=parseFloat(ctl.mMax.value)||3, radius=parseFloat(ctl.spawnR.value)||0.45;
+      const mMin=parseFloat(ctl.mMin.value)||0.5, mMax=parseFloat(ctl.mMax.value)||3, radius=parseFloat(ctl.spawnR.value)||0.55;
       world.bodies = createBodies(n,{mMin,mMax,radius,preset:ctl.preset.value});
       world.step=0; computeAccelerations(world.bodies, parseFloat(ctl.G.value)||1, Math.pow(parseFloat(ctl.eps.value)||0.02,2));
       overlay.textContent='Running… (Space to pause)';
@@ -350,7 +367,7 @@
     }
 
     function addBodies(k=50){
-      world.bodies.push(...createBodies(k,{ mMin:parseFloat(ctl.mMin.value)||0.5, mMax:parseFloat(ctl.mMax.value)||3, radius:parseFloat(ctl.spawnR.value)||0.45, preset:'random' }));
+      world.bodies.push(...createBodies(k,{ mMin:parseFloat(ctl.mMin.value)||0.5, mMax:parseFloat(ctl.mMax.value)||3, radius:parseFloat(ctl.spawnR.value)||0.55, preset:'random' }));
       log('Added '+k+' bodies — total='+world.bodies.length);
     }
 
@@ -361,25 +378,43 @@
       log(world.paused ? 'Paused' : 'Running');
     }
 
+    // Apply preset-specific "good defaults"
+    function applyPresetDefaults(p){
+      if(p==='solar_real'){
+        ctl.G.value='1'; ctl.dt.value='0.004'; ctl.eps.value='0.002'; ctl.speed.value='1'; ctl.trails.value='long'; ctl.nBodies.value='200'; ctl.spawnR.value='1.2';
+      }else if(p==='bh'){
+        ctl.G.value='1'; ctl.dt.value='0.006'; ctl.eps.value='0.01'; ctl.speed.value='1.25'; ctl.trails.value='short'; ctl.nBodies.value='800'; ctl.spawnR.value='0.9';
+      }else if(p==='spiral'){
+        ctl.G.value='1'; ctl.dt.value='0.01'; ctl.eps.value='0.02'; ctl.speed.value='1.2'; ctl.trails.value='short'; ctl.nBodies.value='1200'; ctl.spawnR.value='1.1';
+      }else if(p==='solar_general'){
+        ctl.G.value='1'; ctl.dt.value='0.006'; ctl.eps.value='0.004'; ctl.speed.value='1'; ctl.trails.value='short'; ctl.nBodies.value='8'; ctl.spawnR.value='1.0';
+      }else if(p==='disk'){
+        ctl.G.value='1'; ctl.dt.value='0.012'; ctl.eps.value='0.02'; ctl.speed.value='1'; ctl.trails.value='short'; ctl.nBodies.value='600'; ctl.spawnR.value='0.8';
+      }else if(p==='binary'){
+        ctl.G.value='1'; ctl.dt.value='0.01'; ctl.eps.value='0.02'; ctl.speed.value='1'; ctl.trails.value='short'; ctl.nBodies.value='300'; ctl.spawnR.value='0.8';
+      }else{ // random default
+        Object.entries(DEFAULTS).forEach(([k,v])=>{ if(ctl[k]) ctl[k].value=String(v); });
+      }
+    }
+
+    // ---------- UI wiring ----------
     ctl.btnStart.addEventListener('click',()=>{ world.paused=false; log('Start clicked'); });
     ctl.btnPause.addEventListener('click',togglePause);
     ctl.btnReset.addEventListener('click',reset);
     ctl.btnAdd.addEventListener('click',()=>addBodies(50));
     ctl.btnClear.addEventListener('click',()=>{ world.bodies.length=0; world.step=0; log('Cleared bodies'); });
     ctl.btnRebuildStart.addEventListener('click',()=>{ reset(); world.paused=false; });
-    ctl.btnResetSettings.addEventListener('click',()=>{
-      Object.entries(DEFAULTS).forEach(([k,v])=>{ if(ctl[k]) ctl[k].value=String(v); });
-      world.cam = {x:0,y:0,scale:240,angle:0};
-      drawTrackball(); updateTbLabels();
-      reset();
-    });
+    ctl.btnResetSettings.addEventListener('click',()=>{ applyDefaults(); reset(); });
 
-    ['preset','nBodies','seed','mMin','mMax','spawnR'].forEach(id=>{
-      document.getElementById(id).addEventListener('change',()=>{ reset(); log('Rebuilt after control change'); });
-    });
+    ctl.preset.addEventListener('change',()=>{ const p=ctl.preset.value; applyPresetDefaults(p); reset(); log('Applied preset '+p); });
+
+    ['nBodies','seed','mMin','mMax','spawnR','G','dt','eps','speed','collisions','bounds','trails','radius']
+      .forEach(id=>{ document.getElementById(id).addEventListener('change',()=>{ reset(); }); });
 
     // init
+    applyDefaults(); // good startup defaults
     reset();
+    // trackball init
     drawTrackball(); updateTbLabels();
     let last=performance.now(), acc=0, frames=0;
     function loop(t){
