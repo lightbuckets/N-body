@@ -3,46 +3,55 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>N-Body Playground — v5 (camera controls + reset settings)</title>
+  <title>N-Body Playground — v6 (Trackball Camera)</title>
   <style>
-    :root{
-      --bg:#0b1020; --panel:#121a33; --text:#e6ebff; --muted:#8ea0d0;
-      --accent:#6aa6ff; --danger:#ff6a80; --ok:#65d48f; --warn:#ffd27f;
-    }
+    :root{ --bg:#0b1020; --text:#e6ebff; --muted:#8ea0d0; --accent:#6aa6ff; }
     *{box-sizing:border-box}
     html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif}
-    #wrap{display:grid;grid-template-columns:360px 1fr;height:100vh}
+    #wrap{display:grid;grid-template-columns:380px 1fr;height:100vh}
     #controls{background:linear-gradient(180deg,#0f1530 0%,#0b1020 100%);border-right:1px solid #1f2a4d;padding:14px 14px 80px;overflow:auto}
     h1{font-size:18px;margin:8px 0 6px}
     h2{font-size:13px;font-weight:700;margin:16px 0 8px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
     label{display:flex;align-items:center;gap:8px;font-size:14px;margin:8px 0;color:var(--text)}
-    input[type="range"]{width:100%}
-    input[type="number"]{width:100%;padding:6px;border:1px solid #33406b;border-radius:6px;background:#0c1430;color:var(--text)}
-    select{width:100%;padding:8px;border:1px solid #33406b;border-radius:6px;background:#0c1430;color:var(--text)}
+    input[type="range"], select{width:100%}
+    input[type="number"]{width:100%;padding:6px;border:1px solid #33406b;border-radius:6px;background:#0c1430;color:#var(--text)}
     .row{display:flex;gap:8px;align-items:center}
     .row > *{flex:1}
-    .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:8px 10px;margin:4px 0;border:1px solid #33406b;border-radius:8px;background:#0c1430;color:var(--text);text-decoration:none;cursor:pointer;user-select:none}
-    .btn:hover{border-color:#4b5ea1}
+    .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:8px 10px;margin:4px 0;border:1px solid #33406b;border-radius:8px;background:#0c1430;color:#e6ebff;text-decoration:none;cursor:pointer;user-select:none}
     .btn.primary{background:linear-gradient(180deg,#1b2a66,#132558);border-color:#4054a8;color:#fff}
-    .btn.danger{border-color:#633248;background:#2b0d18;color:#ffd7de}
-    .btn.ok{border-color:#2b6a4a;background:#113322}
     .btn.warn{border-color:#6a5a2b;background:#332911}
     .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-    .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
-    .small{font-size:12px;color:var(--muted);line-height:1.4}
-    .stat{font-variant-numeric:tabular-nums}
+    .small{font-size:12px;color:#8ea0d0;line-height:1.4}
     .divider{height:1px;background:#1f2a4d;margin:10px 0}
     #canvas{width:100%;height:100%;display:block;background:radial-gradient(600px 600px at center,#0c1226 0%,#070b19 60%,#050811 100%)}
-    #footerbar{position:fixed;left:0;right:0;bottom:0;height:46px;display:flex;gap:8px;align-items:center;justify-content:space-between;padding:8px 12px;background:#0b1020;border-top:1px solid #1f2a4d;color:var(--muted);font-size:12px}
-    .kbd{background:#101736;border:1px solid #253163;border-radius:6px;padding:2px 6px;color:#c9d4ff}
     #overlay{position:absolute;right:12px;top:12px;z-index:5;padding:6px 8px;border-radius:8px;background:#141b36cc;border:1px solid #2a3a7a;color:#c9d4ff;font-size:12px;pointer-events:none}
     #diag{background:#0c1430;border:1px solid #2a3a7a;border-radius:8px;padding:8px;max-height:160px;overflow:auto;font-size:12px;color:#cde;white-space:pre-wrap}
+    #footerbar{position:fixed;left:0;right:0;bottom:0;height:46px;display:flex;gap:8px;align-items:center;justify-content:space-between;padding:8px 12px;background:#0b1020;border-top:1px solid #1f2a4d;color:#8ea0d0;font-size:12px}
+    .kbd{background:#101736;border:1px solid #253163;border-radius:6px;padding:2px 6px;color:#c9d4ff}
+    #trackballWrap{display:grid;grid-template-columns:120px 1fr;gap:10px;align-items:center}
+    #trackball{width:120px;height:120px;border-radius:50%;background:#0b122a;border:1px solid #2a3a7a;display:block}
+    .tbHelp{font-size:12px;color:#9fb3ff;line-height:1.5}
+    .pill{display:inline-block;padding:2px 6px;border:1px solid #2a3a7a;border-radius:999px;background:#0e1640;color:#cfe2ff;margin-right:6px}
   </style>
 </head>
 <body>
   <div id="wrap">
     <aside id="controls">
       <h1>N-Body Playground</h1>
+
+      <h2>Trackball Camera</h2>
+      <div id="trackballWrap">
+        <canvas id="trackball" width="120" height="120" aria-label="Trackball camera control"></canvas>
+        <div class="tbHelp">
+          <div><span class="pill">Drag</span> Rotate</div>
+          <div><span class="pill">Shift + Drag</span> Zoom</div>
+          <div><span class="pill">Alt/Option + Drag</span> Pan</div>
+          <div><span class="pill">Wheel</span> Zoom • <span class="pill">Double‑click</span> Reset</div>
+          <div class="small">Angle: <span id="tbAngle">0°</span> • Zoom: <span id="tbZoom">240</span> • Pan: (<span id="tbX">0</span>, <span id="tbY">0</span>)</div>
+        </div>
+      </div>
+
+      <div class="divider"></div>
 
       <h2>Setup</h2>
       <label class="row"><span>Preset</span>
@@ -80,22 +89,6 @@
       </label>
       <label class="row"><span>Point size</span><input id="radius" type="range" min="1" max="4" step="0.5" value="2"></label>
 
-      <h2>Camera</h2>
-      <div class="grid3">
-        <label class="row"><span>Zoom</span><input id="camZoom" type="range" min="60" max="4000" step="10" value="240"></label>
-        <label class="row"><span>Rotate</span><input id="camAngle" type="range" min="-180" max="180" step="1" value="0"></label>
-        <label class="row"><span>Pan Speed</span><input id="camPanSpeed" type="range" min="0.1" max="3" step="0.1" value="1"></label>
-      </div>
-      <div class="grid">
-        <label class="row"><span>Pan X</span><input id="camX" type="number" step="0.01" value="0"></label>
-        <label class="row"><span>Pan Y</span><input id="camY" type="number" step="0.01" value="0"></label>
-      </div>
-      <div class="row">
-        <button id="btnCameraCenter" class="btn warn">🎯 Reset Camera</button>
-        <button id="btnCameraDefaults" class="btn">↺ Camera Defaults</button>
-      </div>
-      <div class="small">Shortcuts: Arrow keys pan • <span class="kbd">+</span>/<span class="kbd">-</span> zoom • <span class="kbd">Q</span>/<span class="kbd">E</span> rotate • <span class="kbd">C</span> center</div>
-
       <div class="divider"></div>
       <div class="row">
         <button id="btnStart" class="btn primary">▶ Start</button>
@@ -104,11 +97,12 @@
       </div>
       <div class="row">
         <button id="btnAdd" class="btn">＋ Add 50</button>
-        <button id="btnClear" class="btn danger">✖ Clear</button>
+        <button id="btnClear" class="btn">✖ Clear</button>
       </div>
       <div class="row">
-        <button id="btnRebuildStart" class="btn ok">⟲ Rebuild & Start</button>
+        <button id="btnRebuildStart" class="btn warn">⟲ Rebuild & Start</button>
         <button id="btnResetSettings" class="btn">🧹 Reset Settings</button>
+        <button id="btnCameraDefaults" class="btn">↺ Camera Defaults</button>
       </div>
 
       <h2>Diagnostics</h2>
@@ -129,8 +123,8 @@
   </div>
 
   <div id="footerbar">
-    <div>Velocity-Verlet with Plummer softening. v5 camera controls.</div>
-    <div>© You. Do whatever you want with it.</div>
+    <div>Velocity-Verlet with Plummer softening. v6 with Trackball UI.</div>
+    <div>© You.</div>
   </div>
 
   <script src="./app.js"></script>
