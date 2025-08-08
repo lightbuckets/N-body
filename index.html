@@ -3,154 +3,98 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>N-Body Playground (JS) — v2</title>
+  <title>N-Body Playground — v5 (camera controls + reset settings)</title>
   <style>
     :root{
-      --bg:#0b1020;
-      --panel:#121a33;
-      --text:#e6ebff;
-      --muted:#8ea0d0;
-      --accent:#6aa6ff;
-      --danger:#ff6a80;
+      --bg:#0b1020; --panel:#121a33; --text:#e6ebff; --muted:#8ea0d0;
+      --accent:#6aa6ff; --danger:#ff6a80; --ok:#65d48f; --warn:#ffd27f;
     }
     *{box-sizing:border-box}
     html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif}
-    #wrap{display:grid;grid-template-columns:320px 1fr;height:100vh}
-    #controls{
-      background:linear-gradient(180deg, #0f1530 0%, #0b1020 100%);
-      border-right:1px solid #1f2a4d;
-      padding:14px 14px 80px;
-      overflow:auto;
-    }
+    #wrap{display:grid;grid-template-columns:360px 1fr;height:100vh}
+    #controls{background:linear-gradient(180deg,#0f1530 0%,#0b1020 100%);border-right:1px solid #1f2a4d;padding:14px 14px 80px;overflow:auto}
     h1{font-size:18px;margin:8px 0 6px}
     h2{font-size:13px;font-weight:700;margin:16px 0 8px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
     label{display:flex;align-items:center;gap:8px;font-size:14px;margin:8px 0;color:var(--text)}
     input[type="range"]{width:100%}
-    input[type="number"]{width:90px;padding:6px;border:1px solid #33406b;border-radius:6px;background:#0c1430;color:var(--text)}
+    input[type="number"]{width:100%;padding:6px;border:1px solid #33406b;border-radius:6px;background:#0c1430;color:var(--text)}
     select{width:100%;padding:8px;border:1px solid #33406b;border-radius:6px;background:#0c1430;color:var(--text)}
     .row{display:flex;gap:8px;align-items:center}
     .row > *{flex:1}
-    .btn{
-      display:inline-flex;align-items:center;justify-content:center;
-      gap:6px;padding:8px 10px;margin:4px 0;
-      border:1px solid #33406b;border-radius:8px;background:#0c1430;color:var(--text);
-      text-decoration:none;cursor:pointer;user-select:none;
-    }
+    .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:8px 10px;margin:4px 0;border:1px solid #33406b;border-radius:8px;background:#0c1430;color:var(--text);text-decoration:none;cursor:pointer;user-select:none}
     .btn:hover{border-color:#4b5ea1}
     .btn.primary{background:linear-gradient(180deg,#1b2a66,#132558);border-color:#4054a8;color:#fff}
     .btn.danger{border-color:#633248;background:#2b0d18;color:#ffd7de}
-    .btn:disabled{opacity:.6;cursor:not-allowed}
+    .btn.ok{border-color:#2b6a4a;background:#113322}
+    .btn.warn{border-color:#6a5a2b;background:#332911}
     .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
     .small{font-size:12px;color:var(--muted);line-height:1.4}
     .stat{font-variant-numeric:tabular-nums}
     .divider{height:1px;background:#1f2a4d;margin:10px 0}
     #canvas{width:100%;height:100%;display:block;background:radial-gradient(600px 600px at center,#0c1226 0%,#070b19 60%,#050811 100%)}
-    #footerbar{
-      position:fixed;left:0;right:0;bottom:0;height:46px;
-      display:flex;gap:8px;align-items:center;justify-content:space-between;
-      padding:8px 12px;background:#0b1020;border-top:1px solid #1f2a4d;
-      color:var(--muted);font-size:12px;
-    }
+    #footerbar{position:fixed;left:0;right:0;bottom:0;height:46px;display:flex;gap:8px;align-items:center;justify-content:space-between;padding:8px 12px;background:#0b1020;border-top:1px solid #1f2a4d;color:var(--muted);font-size:12px}
     .kbd{background:#101736;border:1px solid #253163;border-radius:6px;padding:2px 6px;color:#c9d4ff}
-    #overlay{
-      position:absolute;right:12px;top:12px;z-index:5;
-      padding:6px 8px;border-radius:8px;background:#141b36cc;border:1px solid #2a3a7a;
-      color:#c9d4ff;font-size:12px;pointer-events:none;
-    }
+    #overlay{position:absolute;right:12px;top:12px;z-index:5;padding:6px 8px;border-radius:8px;background:#141b36cc;border:1px solid #2a3a7a;color:#c9d4ff;font-size:12px;pointer-events:none}
+    #diag{background:#0c1430;border:1px solid #2a3a7a;border-radius:8px;padding:8px;max-height:160px;overflow:auto;font-size:12px;color:#cde;white-space:pre-wrap}
   </style>
 </head>
 <body>
   <div id="wrap">
     <aside id="controls">
       <h1>N-Body Playground</h1>
-      <div class="small">Interactive, in-browser gravity sim (velocity-Verlet). O(N²), so keep N reasonable. Trails for pretty ✨</div>
 
       <h2>Setup</h2>
-      <label class="row">
-        <span>Preset</span>
-        <select id="preset">
-          <option value="random">Random cloud</option>
-          <option value="disk">Spinning disk (galaxy-ish)</option>
-          <option value="binary">Two-body + test particles</option>
-          <option value="solar">Mini solar (sun + planets)</option>
-        </select>
+      <label class="row"><span>Preset</span>
+        <select id="preset"><option value="random">Random cloud</option><option value="disk">Spinning disk</option><option value="binary">Two-body + test</option><option value="solar">Mini solar</option></select>
       </label>
       <div class="grid">
-        <label class="row">
-          <span>N bodies</span>
-          <input id="nBodies" type="number" min="2" max="1200" step="1" value="200">
-        </label>
-        <label class="row">
-          <span>Seed</span>
-          <input id="seed" type="number" min="0" max="999999" step="1" value="42">
-        </label>
+        <label class="row"><span>N bodies</span><input id="nBodies" type="number" min="2" max="1200" step="1" value="200"></label>
+        <label class="row"><span>Seed</span><input id="seed" type="number" min="0" max="999999" step="1" value="42"></label>
       </div>
       <div class="grid">
-        <label class="row">
-          <span>Mass min</span>
-          <input id="mMin" type="number" min="0.1" step="0.1" value="0.5">
-        </label>
-        <label class="row">
-          <span>Mass max</span>
-          <input id="mMax" type="number" min="0.1" step="0.1" value="3">
-        </label>
+        <label class="row"><span>Mass min</span><input id="mMin" type="number" min="0.1" step="0.1" value="0.5"></label>
+        <label class="row"><span>Mass max</span><input id="mMax" type="number" min="0.1" step="0.1" value="3"></label>
       </div>
-      <label class="row">
-        <span>Spawn radius</span>
-        <input id="spawnR" type="range" min="0.1" max="1.0" step="0.01" value="0.45">
-      </label>
+      <label class="row"><span>Spawn radius</span><input id="spawnR" type="range" min="0.1" max="1.0" step="0.01" value="0.45"></label>
 
       <h2>Physics</h2>
-      <label class="row">
-        <span>G</span>
-        <input id="G" type="number" step="0.001" value="1">
-      </label>
+      <label class="row"><span>G</span><input id="G" type="number" step="0.001" value="1"></label>
       <div class="grid">
-        <label class="row">
-          <span>Δt</span>
-          <input id="dt" type="number" step="0.001" value="0.02">
-        </label>
-        <label class="row">
-          <span>Softening ε</span>
-          <input id="eps" type="number" step="0.001" value="0.02">
-        </label>
+        <label class="row"><span>Δt</span><input id="dt" type="number" step="0.001" value="0.02"></label>
+        <label class="row"><span>Softening ε</span><input id="eps" type="number" step="0.001" value="0.02"></label>
       </div>
-      <label class="row">
-        <span>Speed ×</span>
-        <input id="speed" type="range" min="0.25" max="5" step="0.25" value="1">
-      </label>
+      <label class="row"><span>Speed ×</span><input id="speed" type="range" min="0.25" max="5" step="0.25" value="1"></label>
       <div class="grid">
-        <label class="row">
-          <span>Collisions</span>
-          <select id="collisions">
-            <option value="none">Ignore</option>
-            <option value="merge" selected>Merge</option>
-            <option value="bounce">Elastic</option>
-          </select>
+        <label class="row"><span>Collisions</span>
+          <select id="collisions"><option value="none">Ignore</option><option value="merge" selected>Merge</option><option value="bounce">Elastic</option></select>
         </label>
-        <label class="row">
-          <span>Bounds</span>
-          <select id="bounds">
-            <option value="wrap">Wrap</option>
-            <option value="reflect">Reflect</option>
-            <option value="open" selected>Open</option>
-          </select>
+        <label class="row"><span>Bounds</span>
+          <select id="bounds"><option value="wrap">Wrap</option><option value="reflect">Reflect</option><option value="open" selected>Open</option></select>
         </label>
       </div>
 
       <h2>Rendering</h2>
-      <label class="row">
-        <span>Trails</span>
-        <select id="trails">
-          <option value="off">Off</option>
-          <option value="short" selected>Short</option>
-          <option value="long">Long</option>
-        </select>
+      <label class="row"><span>Trails</span>
+        <select id="trails"><option value="off">Off</option><option value="short" selected>Short</option><option value="long">Long</option></select>
       </label>
-      <label class="row">
-        <span>Point size</span>
-        <input id="radius" type="range" min="1" max="4" step="0.5" value="2">
-      </label>
+      <label class="row"><span>Point size</span><input id="radius" type="range" min="1" max="4" step="0.5" value="2"></label>
+
+      <h2>Camera</h2>
+      <div class="grid3">
+        <label class="row"><span>Zoom</span><input id="camZoom" type="range" min="60" max="4000" step="10" value="240"></label>
+        <label class="row"><span>Rotate</span><input id="camAngle" type="range" min="-180" max="180" step="1" value="0"></label>
+        <label class="row"><span>Pan Speed</span><input id="camPanSpeed" type="range" min="0.1" max="3" step="0.1" value="1"></label>
+      </div>
+      <div class="grid">
+        <label class="row"><span>Pan X</span><input id="camX" type="number" step="0.01" value="0"></label>
+        <label class="row"><span>Pan Y</span><input id="camY" type="number" step="0.01" value="0"></label>
+      </div>
+      <div class="row">
+        <button id="btnCameraCenter" class="btn warn">🎯 Reset Camera</button>
+        <button id="btnCameraDefaults" class="btn">↺ Camera Defaults</button>
+      </div>
+      <div class="small">Shortcuts: Arrow keys pan • <span class="kbd">+</span>/<span class="kbd">-</span> zoom • <span class="kbd">Q</span>/<span class="kbd">E</span> rotate • <span class="kbd">C</span> center</div>
 
       <div class="divider"></div>
       <div class="row">
@@ -162,6 +106,13 @@
         <button id="btnAdd" class="btn">＋ Add 50</button>
         <button id="btnClear" class="btn danger">✖ Clear</button>
       </div>
+      <div class="row">
+        <button id="btnRebuildStart" class="btn ok">⟲ Rebuild & Start</button>
+        <button id="btnResetSettings" class="btn">🧹 Reset Settings</button>
+      </div>
+
+      <h2>Diagnostics</h2>
+      <div id="diag" class="small">Booting…</div>
 
       <h2>Stats</h2>
       <div class="small">
@@ -170,433 +121,18 @@
         <div>Momentum |P|: <span id="statP" class="stat">—</span></div>
         <div>FPS: <span id="statFPS" class="stat">—</span></div>
       </div>
-
-      <h2>Tips</h2>
-      <div class="small">
-        • Lower <b>Δt</b> and higher <b>ε</b> → more stable.<br>
-        • O(N²): doubling N ~ 4× slower.<br>
-        • <span class="kbd">Space</span> pause/resume. <span class="kbd">R</span> reset. Wheel zoom, drag to pan.
-      </div>
     </aside>
     <main style="position:relative">
       <div id="overlay">Running… (Space to pause)</div>
-      <canvas id="canvas"></canvas>
+      <canvas id="canvas" aria-label="Simulation canvas"></canvas>
     </main>
   </div>
 
   <div id="footerbar">
-    <div>Velocity-Verlet integrator with Plummer softening. Built for teaching and tinkering.</div>
+    <div>Velocity-Verlet with Plummer softening. v5 camera controls.</div>
     <div>© You. Do whatever you want with it.</div>
   </div>
 
-<script>
-(() => {
-  // Ensure canvas has a size even without ResizeObserver
-  function sizeCanvasToElement(canvas){
-    const rect = canvas.getBoundingClientRect();
-    const dpr = window.devicePixelRatio||1;
-    const w = Math.max(2, Math.floor(rect.width*dpr));
-    const h = Math.max(2, Math.floor(rect.height*dpr));
-    if(canvas.width!==w || canvas.height!==h){ canvas.width=w; canvas.height=h; }
-  }
-
-  // ---------- Utilities ----------
-  const rand = (seed => {
-    function m32(a){return function(){var t=a+=0x6D2B79F5;t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return ((t^t>>>14)>>>0)/4294967296}}
-    let prng = m32(seed||1);
-    const api = {
-      reseed(s){ prng = m32((s>>>0)||1) },
-      f(){ return prng() },
-      range(min,max){ return min + (max-min)*prng() },
-      norm(){
-        let u=0,v=0;while(u===0)u=prng();while(v===0)v=prng();
-        return Math.sqrt(-2.0*Math.log(u))*Math.cos(2*Math.PI*v);
-      }
-    };
-    return api;
-  })(42);
-
-  const clamp = (x,a,b)=>Math.max(a,Math.min(b,x));
-
-  // ---------- State ----------
-  const canvas = document.getElementById('canvas');
-  const ctx = canvas.getContext('2d');
-  const overlay = document.getElementById('overlay');
-  let width=2, height=2, dpr=window.devicePixelRatio||1;
-
-  function resize(){
-    sizeCanvasToElement(canvas);
-    width = canvas.width; height = canvas.height;
-  }
-  resize();
-  // Use ResizeObserver if available, else fallback to window resize
-  if('ResizeObserver' in window){ new ResizeObserver(resize).observe(canvas); }
-  window.addEventListener('resize', resize);
-
-  const controls = {
-    preset: document.getElementById('preset'),
-    nBodies: document.getElementById('nBodies'),
-    seed: document.getElementById('seed'),
-    mMin: document.getElementById('mMin'),
-    mMax: document.getElementById('mMax'),
-    spawnR: document.getElementById('spawnR'),
-    G: document.getElementById('G'),
-    dt: document.getElementById('dt'),
-    eps: document.getElementById('eps'),
-    speed: document.getElementById('speed'),
-    collisions: document.getElementById('collisions'),
-    bounds: document.getElementById('bounds'),
-    trails: document.getElementById('trails'),
-    radius: document.getElementById('radius'),
-    btnStart: document.getElementById('btnStart'),
-    btnPause: document.getElementById('btnPause'),
-    btnReset: document.getElementById('btnReset'),
-    btnAdd: document.getElementById('btnAdd'),
-    btnClear: document.getElementById('btnClear'),
-    statStep: document.getElementById('statStep'),
-    statE: document.getElementById('statE'),
-    statP: document.getElementById('statP'),
-    statFPS: document.getElementById('statFPS'),
-  };
-
-  let world = {
-    bodies: [],
-    step: 0,
-    paused: false, // AUTO-START
-    cam: {x:0,y:0,scale: 240},
-  };
-
-  // ---------- Interaction (pan/zoom) ----------
-  let isDragging=false, lastX=0, lastY=0;
-  canvas.addEventListener('mousedown',e=>{isDragging=true; lastX=e.clientX; lastY=e.clientY;});
-  window.addEventListener('mouseup',()=>isDragging=false);
-  window.addEventListener('mousemove',e=>{
-    if(!isDragging) return;
-    const dx = (e.clientX-lastX), dy=(e.clientY-lastY);
-    lastX=e.clientX; lastY=e.clientY;
-    world.cam.x -= dx/world.cam.scale * dpr;
-    world.cam.y += dy/world.cam.scale * dpr;
-  });
-  canvas.addEventListener('wheel',e=>{
-    e.preventDefault();
-    const old = world.cam.scale;
-    const delta = Math.exp(-e.deltaY*0.001);
-    world.cam.scale = clamp(world.cam.scale * delta, 60, 4000);
-    const rect = canvas.getBoundingClientRect();
-    const cx = (e.clientX-rect.left)*dpr, cy = (e.clientY-rect.top)*dpr;
-    const wx = (cx - width/2)/old + world.cam.x;
-    const wy = (height/2 - cy)/old + world.cam.y;
-    world.cam.x = wx - (cx - width/2)/world.cam.scale;
-    world.cam.y = wy - (height/2 - cy)/world.cam.scale;
-  }, {passive:false});
-
-  window.addEventListener('keydown',e=>{
-    if(e.code==='Space'){ togglePause(); }
-    if(e.code==='KeyR'){ reset(); }
-  });
-
-  // ---------- Physics ----------
-  function createBodies(n, opts){
-    const bodies = [];
-    const {
-      mMin=0.5, mMax=3, radius=0.45, preset='random', G=1
-    } = opts||{};
-    const r = radius;
-
-    function pushBody(x,y,vx,vy,m,color){
-      bodies.push({x,y,vx,vy,ax:0,ay:0,m, color, trail:[]});
-    }
-
-    const palette = ['#a4b9ff','#9fe2ff','#ffd27f','#ff9fb2','#d6ff9f','#c6a8ff','#9fffd8'];
-    const pickColor = i => palette[i % palette.length];
-
-    if(preset==='random'){
-      for(let i=0;i<n;i++){
-        const a = rand.f()*2*Math.PI;
-        const rr = r * (0.2 + 0.8*Math.sqrt(rand.f()));
-        const x = rr*Math.cos(a), y = rr*Math.sin(a);
-        const m = rand.range(mMin,mMax);
-        const vx = rand.norm()*0.2, vy = rand.norm()*0.2;
-        pushBody(x,y,vx,vy,m,pickColor(i));
-      }
-    }
-    else if(preset==='disk'){
-      for(let i=0;i<n;i++){
-        const rr = r * Math.sqrt(rand.f());
-        const a = rand.f()*2*Math.PI;
-        const x = rr*Math.cos(a), y = rr*Math.sin(a);
-        const m = rand.range(mMin,mMax);
-        const v = 0.6*Math.sqrt(G * (i+1)/n / Math.max(rr,0.01));
-        const vx = -v*Math.sin(a), vy = v*Math.cos(a);
-        pushBody(x,y,vx,vy,m,pickColor(i));
-      }
-      pushBody(0,0,0,0, Math.max(mMax*10,20), '#ffd27f');
-    }
-    else if(preset==='binary'){
-      const M = Math.max(mMax*10,20);
-      pushBody(-0.2,0, 0,-0.4, M, '#ffd27f');
-      pushBody(0.2,0, 0,0.4, M, '#ffd27f');
-      for(let i=0;i<n;i++){
-        const a = rand.f()*2*Math.PI;
-        const rr = 0.9*r*Math.sqrt(rand.f());
-        const x = rr*Math.cos(a), y = rr*Math.sin(a);
-        const m = rand.range(mMin,mMax);
-        const vx = rand.norm()*0.1, vy = rand.norm()*0.1;
-        pushBody(x,y,vx,vy,m,pickColor(i));
-      }
-    }
-    else if(preset==='solar'){
-      pushBody(0,0,0,0, 100, '#ffd27f');
-      const planets = Math.min(8, Math.max(1, Math.floor(n/20)));
-      for(let i=0;i<planets;i++){
-        const a = rand.f()*2*Math.PI;
-        const rr = 0.1 + (i+1)*0.07;
-        const x = rr*Math.cos(a), y = rr*Math.sin(a);
-        const v = Math.sqrt(G*100/rr);
-        const vx = -v*Math.sin(a), vy = v*Math.cos(a);
-        pushBody(x,y,vx,vy, 1.5+0.2*i, pickColor(i));
-        for(let k=0;k<Math.floor(n/planets)-1;k++){
-          const aa = a + rand.range(-0.2,0.2);
-          const rrr = rr + rand.range(-0.01,0.01);
-          const xx = rrr*Math.cos(aa), yy=rrr*Math.sin(aa);
-          const vv = v*(1+rand.range(-0.05,0.05));
-          const vxx = -vv*Math.sin(aa), vyy = vv*Math.cos(aa);
-          pushBody(xx,yy,vxx,vyy, rand.range(mMin,mMax), pickColor(i+k));
-        }
-      }
-    }
-    return bodies;
-  }
-
-  function computeAccelerations(bodies, G, eps2){
-    const n = bodies.length;
-    for(let i=0;i<n;i++){ bodies[i].ax=0; bodies[i].ay=0; }
-    for(let i=0;i<n;i++){
-      const bi = bodies[i];
-      for(let j=i+1;j<n;j++){
-        const bj = bodies[j];
-        const dx = bj.x - bi.x;
-        const dy = bj.y - bi.y;
-        const r2 = dx*dx + dy*dy + eps2;
-        const invR = 1/Math.sqrt(r2);
-        const invR3 = invR*invR*invR;
-        const f = G * invR3;
-        const fx = f * dx;
-        const fy = f * dy;
-        bi.ax += fx * bj.m;
-        bi.ay += fy * bj.m;
-        bj.ax -= fx * bi.m;
-        bj.ay -= fy * bi.m;
-      }
-    }
-  }
-
-  function stepSystem(w){
-    const G = parseFloat(controls.G.value);
-    const eps = parseFloat(controls.eps.value); const eps2 = eps*eps;
-    const dt = parseFloat(controls.dt.value) * parseFloat(controls.speed.value);
-    const bounds = controls.bounds.value;
-    const collisions = controls.collisions.value;
-    const RBOUND = 2.2;
-
-    const bodies = w.bodies;
-    for(const b of bodies){
-      b.vx += 0.5*dt*b.ax;
-      b.vy += 0.5*dt*b.ay;
-      b.x += dt*b.vx;
-      b.y += dt*b.vy;
-    }
-    if(bounds!=='open'){
-      for(const b of bodies){
-        if(bounds==='wrap'){
-          if(b.x<-RBOUND) b.x+=2*RBOUND; if(b.x> RBOUND) b.x-=2*RBOUND;
-          if(b.y<-RBOUND) b.y+=2*RBOUND; if(b.y> RBOUND) b.y-=2*RBOUND;
-        }else if(bounds==='reflect'){
-          if(b.x<-RBOUND||b.x>RBOUND){ b.vx*=-1; b.x=clamp(b.x,-RBOUND,RBOUND); }
-          if(b.y<-RBOUND||b.y>RBOUND){ b.vy*=-1; b.y=clamp(b.y,-RBOUND,RBOUND); }
-        }
-      }
-    }
-    computeAccelerations(bodies, G, eps2);
-    for(const b of bodies){
-      b.vx += 0.5*dt*b.ax;
-      b.vy += 0.5*dt*b.ay;
-    }
-    if(collisions!=='none'){
-      const n = bodies.length;
-      const toRemove = new Set();
-      for(let i=0;i<n;i++){
-        for(let j=i+1;j<n;j++){
-          const bi = bodies[i], bj=bodies[j];
-          const dx=bj.x-bi.x, dy=bj.y-bi.y;
-          const r2 = dx*dx+dy*dy;
-          const rmin = 0.01;
-          if(r2 < rmin*rmin){
-            if(collisions==='merge'){
-              const m = bi.m + bj.m;
-              const vx = (bi.vx*bi.m + bj.vx*bj.m)/m;
-              const vy = (bi.vy*bi.m + bj.vy*bj.m)/m;
-              bi.x = (bi.x*bi.m + bj.x*bj.m)/m;
-              bi.y = (bi.y*bi.m + bj.y*bj.m)/m;
-              bi.vx=vx; bi.vy=vy; bi.m=m;
-              toRemove.add(j);
-            }else if(collisions==='bounce'){
-              const nx = dx/Math.sqrt(r2+1e-12), ny = dy/Math.sqrt(r2+1e-12);
-              const dvx = bj.vx - bi.vx, dvy = bj.vy - bi.vy;
-              const p = 2*(dvx*nx + dvy*ny)/(bi.m + bj.m);
-              bi.vx += p* bj.m*nx; bi.vy += p*bj.m*ny;
-              bj.vx -= p* bi.m*nx; bj.vy -= p*bi.m*ny;
-            }
-          }
-        }
-      }
-      world.bodies = bodies.filter((_,i)=>!toRemove.has(i));
-    }
-    const trailLen = controls.trails.value==='off'?0:(controls.trails.value==='short'? 16:48);
-    if(trailLen>0){
-      for(const b of world.bodies){
-        b.trail.push([b.x,b.y]);
-        if(b.trail.length>trailLen) b.trail.shift();
-      }
-    }else{
-      for(const b of world.bodies) b.trail.length=0;
-    }
-    w.step++;
-  }
-
-  function computeStats(){
-    const bodies = world.bodies;
-    const G = parseFloat(controls.G.value);
-    const eps2 = parseFloat(controls.eps.value)**2;
-
-    let K=0, U=0, Px=0, Py=0;
-    for(const b of bodies){
-      K += 0.5*b.m*(b.vx*b.vx + b.vy*b.vy);
-      Px += b.m*b.vx; Py += b.m*b.vy;
-    }
-    for(let i=0;i<bodies.length;i++){
-      for(let j=i+1;j<bodies.length;j++){
-        const bi=bodies[i], bj=bodies[j];
-        const dx=bj.x-bi.x, dy=bj.y-bi.y;
-        const r = Math.sqrt(dx*dx+dy*dy+eps2);
-        U += -G*bi.m*bj.m / r;
-      }
-    }
-    controls.statStep.textContent = world.step.toString();
-    controls.statE.textContent = (K+U).toFixed(3);
-    controls.statP.textContent = Math.hypot(Px,Py).toFixed(3);
-  }
-
-  function worldToScreen(x,y){
-    return [
-      canvas.width/2 + (x - world.cam.x)*world.cam.scale,
-      canvas.height/2 - (y - world.cam.y)*world.cam.scale
-    ];
-  }
-
-  function render(){
-    // keep canvas sized
-    resize();
-
-    const trails = controls.trails.value!=='off';
-    const ctx = canvas.getContext('2d');
-    if(!trails){
-      ctx.clearRect(0,0,canvas.width,canvas.height);
-      ctx.fillStyle = 'rgba(11,16,32,0.22)';
-      ctx.fillRect(0,0,canvas.width,canvas.height);
-    }else{
-      ctx.fillStyle = 'rgba(5,8,17,0.08)';
-      ctx.fillRect(0,0,canvas.width,canvas.height);
-    }
-
-    const rPix = parseFloat(controls.radius.value);
-    for(const b of world.bodies){
-      if(b.trail && b.trail.length>1){
-        ctx.beginPath();
-        for(let i=0;i<b.trail.length;i++){
-          const [x,y]=worldToScreen(b.trail[i][0], b.trail[i][1]);
-          if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
-        }
-        ctx.lineWidth = 1;
-        ctx.strokeStyle = b.color + 'AA';
-        ctx.stroke();
-      }
-      const [sx,sy] = worldToScreen(b.x,b.y);
-      ctx.beginPath();
-      const rad = rPix + Math.log10(1+b.m)*0.6;
-      ctx.arc(sx,sy, rad, 0, Math.PI*2);
-      ctx.fillStyle = b.color;
-      ctx.fill();
-    }
-    if(controls.bounds.value!=='open'){
-      ctx.strokeStyle = '#24315d';
-      ctx.lineWidth = 1;
-      const [x0,y0]=worldToScreen(-2.2,-2.2);
-      const [x1,y1]=worldToScreen( 2.2, 2.2);
-      ctx.strokeRect(x0,y1, x1-x0, y0-y1);
-    }
-    overlay.textContent = world.paused ? 'Paused (Space to resume)' : 'Running… (Space to pause)';
-  }
-
-  let lastT=performance.now(), acc=0, frames=0, fps=0;
-  function loop(t){
-    const dt = t-lastT; lastT=t;
-    if(!world.paused){
-      stepSystem(world);
-      if(world.step%4===0) computeStats();
-    }
-    render();
-    frames++; acc+=dt; if(acc>=500){ fps=Math.round(frames/(acc/1000)); frames=0; acc=0; controls.statFPS.textContent=fps.toString(); }
-    requestAnimationFrame(loop);
-  }
-  requestAnimationFrame(loop);
-
-  function reset(){
-    rand.reseed(parseInt(controls.seed.value,10)||1);
-    const n = parseInt(controls.nBodies.value,10);
-    const bodies = createBodies(n, {
-      mMin: parseFloat(controls.mMin.value),
-      mMax: parseFloat(controls.mMax.value),
-      radius: parseFloat(controls.spawnR.value),
-      preset: controls.preset.value,
-      G: parseFloat(controls.G.value),
-    });
-    world.bodies = bodies;
-    world.step = 0;
-    computeAccelerations(world.bodies, parseFloat(controls.G.value), parseFloat(controls.eps.value)**2);
-  }
-
-  function addBodies(k=50){
-    rand.reseed((rand.f()*1e9)|0);
-    world.bodies.push(...createBodies(k, {
-      mMin: parseFloat(controls.mMin.value),
-      mMax: parseFloat(controls.mMax.value),
-      radius: parseFloat(controls.spawnR.value),
-      preset: 'random',
-      G: parseFloat(controls.G.value),
-    }));
-  }
-
-  function togglePause(){
-    world.paused = !world.paused;
-    controls.btnPause.textContent = world.paused ? '⏵ Resume' : '⏸ Pause';
-  }
-
-  controls.btnStart.addEventListener('click',()=>{ world.paused=false; });
-  controls.btnPause.addEventListener('click',togglePause);
-  controls.btnReset.addEventListener('click',reset);
-  controls.btnAdd.addEventListener('click',()=>addBodies(50));
-  controls.btnClear.addEventListener('click',()=>{ world.bodies.length=0; world.step=0; });
-
-  ['preset','nBodies','seed','mMin','mMax','spawnR'].forEach(id=>{
-    controls[id].addEventListener('change',reset);
-  });
-
-  // Initialize & AUTO START
-  reset();
-  world.paused = false;
-  controls.btnPause.textContent = '⏸ Pause';
-})();
-</script>
+  <script src="./app.js"></script>
 </body>
 </html>
