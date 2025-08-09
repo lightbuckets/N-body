@@ -3,12 +3,12 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>N-Body Playground — v6.4 (Context Toggles + Barred Spiral)</title>
+  <title>N-Body Playground — v6.6 (Bar Random Phase + Persisted Spiral Settings)</title>
   <style>
     :root{ --bg:#0b1020; --text:#e6ebff; --muted:#8ea0d0; --accent:#6aa6ff; }
     *{box-sizing:border-box}
     html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif}
-    #wrap{display:grid;grid-template-columns:420px 1fr;height:100vh}
+    #wrap{display:grid;grid-template-columns:430px 1fr;height:100vh}
     #controls{background:linear-gradient(180deg,#0f1530 0%,#0b1020 100%);border-right:1px solid #1f2a4d;padding:14px 14px 80px;overflow:auto}
     h1{font-size:18px;margin:8px 0 6px}
     h2{font-size:13px;font-weight:700;margin:16px 0 8px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
@@ -33,8 +33,6 @@
     #trackball{width:120px;height:120px;border-radius:50%;background:#0b122a;border:1px solid #2a3a7a;display:block}
     .tbHelp{font-size:12px;color:#9fb3ff;line-height:1.5}
     .pill{display:inline-block;padding:2px 6px;border:1px solid #2a3a7a;border-radius:999px;background:#0e1640;color:#cfe2ff;margin-right:6px}
-    #presetExtras .row{align-items:center}
-    .rightLabel{width:42%;text-align:right;color:#9fb3ff}
   </style>
 </head>
 <body>
@@ -137,14 +135,14 @@
   </div>
 
   <div id="footerbar">
-    <div>Velocity-Verlet with Plummer softening. v6.4 visuals.</div>
+    <div>Velocity-Verlet with Plummer softening. v6.6 bar random phase.</div>
     <div>© You.</div>
   </div>
 
   <script>
   (function(){
     const diag = document.getElementById('diag');
-    function log(msg){ const t=new Date().toLocaleTimeString(); diag.textContent += `\\n[${t}] ${msg}`; diag.scrollTop = diag.scrollHeight; }
+    function log(msg){ const t=new Date().toLocaleTimeString(); diag.textContent += `\n[${t}] ${msg}`; diag.scrollTop = diag.scrollHeight; }
     window.addEventListener('error', e=>log('ERROR: '+(e.message||e)));
     window.addEventListener('unhandledrejection', e=>log('REJECTION: '+e.reason));
 
@@ -184,10 +182,10 @@
     function applyDefaults(){ Object.entries(DEFAULTS).forEach(([k,v])=>{ if(ctl[k]) ctl[k].value = String(v); }); }
     const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
 
-    // Camera
-    let world = { bodies: [], step: 0, paused: false, cam:{x:0,y:0,scale:280,angle:0}, preset:'', flags:{ showAccretion:true, showSolarFlares:true, spiralBar:false, spiralBarSpeed:0.6 } };
+    let world = { bodies: [], step: 0, paused: false, cam:{x:0,y:0,scale:280,angle:0}, preset:'',
+      flags:{ showAccretion:true, showSolarFlares:true, spiralBar:false, spiralBarSpeed:0.6, spiralBarStrength:0.25, spiralBarRandom:true, spiralBarPhase0:0 }
+    };
 
-    // Trackball UI
     const tb = document.getElementById('trackball');
     const tbc = tb.getContext('2d');
     const tbAngleEl = document.getElementById('tbAngle');
@@ -232,10 +230,9 @@
     tb.addEventListener('wheel',e=>{ e.preventDefault(); world.cam.scale = clamp(world.cam.scale * Math.exp(-e.deltaY*0.001), 60, 4000); drawTrackball(); updateTbLabels(); }, {passive:false});
     tb.addEventListener('dblclick',()=>{ world.cam={x:0,y:0,scale:280,angle:0}; drawTrackball(); updateTbLabels(); });
 
-    // Context-sensitive extras UI
     function setExtrasUI(preset){
       const el = ctl.presetExtras;
-      el.innerHTML = ''; // clear
+      el.innerHTML = '';
       if(preset === 'bh'){
         el.innerHTML = `
           <h2>Black Hole Visuals</h2>
@@ -249,17 +246,26 @@
         `;
         document.getElementById('flagSolar').addEventListener('change', (e)=>{ world.flags.showSolarFlares = e.target.checked; });
       } else if(preset === 'spiral'){
-        el.innerHTML = `
+        const base = document.createElement('div');
+        base.innerHTML = `
           <h2>Spiral Options</h2>
           <label class="row"><span>Enable barred spiral</span><input id="flagBar" type="checkbox" ${world.flags.spiralBar?'checked':''}></label>
-          <div class="row"><span>Bar pattern speed</span><input id="flagBarSpeed" type="range" min="0" max="2" step="0.05" value="${world.flags.spiralBarSpeed}"></div>
+          <div id="spiralAdvanced" style="display:${world.flags.spiralBar?'block':'none'}">
+            <div class="row"><span>Bar pattern speed</span><input id="flagBarSpeed" type="range" min="0" max="2" step="0.05" value="${world.flags.spiralBarSpeed}"></div>
+            <div class="row"><span>Bar strength</span><input id="flagBarStrength" type="range" min="0" max="1" step="0.01" value="${world.flags.spiralBarStrength}"></div>
+            <label class="row"><span>Randomize bar phase on reset</span><input id="flagBarRandom" type="checkbox" ${world.flags.spiralBarRandom?'checked':''}></label>
+          </div>
         `;
-        document.getElementById('flagBar').addEventListener('change', (e)=>{ world.flags.spiralBar = e.target.checked; });
-        document.getElementById('flagBarSpeed').addEventListener('input', (e)=>{ world.flags.spiralBarSpeed = parseFloat(e.target.value)||0.6; });
+        el.appendChild(base);
+        const flagBar = base.querySelector('#flagBar');
+        const adv = base.querySelector('#spiralAdvanced');
+        flagBar.addEventListener('change', (e)=>{ world.flags.spiralBar = e.target.checked; adv.style.display = world.flags.spiralBar?'block':'none'; });
+        base.querySelector('#flagBarSpeed').addEventListener('input', (e)=>{ world.flags.spiralBarSpeed = parseFloat(e.target.value)||0.6; });
+        base.querySelector('#flagBarStrength').addEventListener('input', (e)=>{ world.flags.spiralBarStrength = parseFloat(e.target.value)||0.25; });
+        base.querySelector('#flagBarRandom').addEventListener('change', (e)=>{ world.flags.spiralBarRandom = e.target.checked; });
       }
     }
 
-    // Physics
     const palette=['#a4b9ff','#9fe2ff','#ffd27f','#ff9fb2','#d6ff9f','#c6a8ff','#9fffd8']; const pick=i=>palette[i%palette.length];
     function seeded(seed){ let a=(seed>>>0)||1; return ()=>{ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,a|1); t^=t+Math.imul(t^t>>>7,t|61); return ((t^t>>>14)>>>0)/4294967296; }; }
 
@@ -327,6 +333,24 @@
           bj.ax -= fx * bi.m; bj.ay -= fy * bi.m;
         }
       }
+
+      if(world.preset==='spiral' && world.flags.spiralBar && world.flags.spiralBarStrength>0){
+        const A = 0.08 * world.flags.spiralBarStrength;
+        const dt_eff = (parseFloat(ctl.dt.value)||0.02) * (parseFloat(ctl.speed.value)||1);
+        const t = world.step * dt_eff;
+        const Omega = world.flags.spiralBarSpeed;
+        const phi0 = world.flags.spiralBarPhase0 || 0;
+        for(let i=0;i<n;i++){
+          const b=bodies[i];
+          const r = Math.hypot(b.x, b.y) + 1e-6;
+          const theta = Math.atan2(b.y, b.x);
+          const psi = theta - (Omega*t + phi0);
+          const ar = -2*A*r*Math.cos(2*psi);
+          const ath =  2*A*r*Math.sin(2*psi);
+          b.ax += ar*Math.cos(theta) + ath*(-Math.sin(theta));
+          b.ay += ar*Math.sin(theta) + ath*( Math.cos(theta));
+        }
+      }
     }
 
     function stepSystem(w){
@@ -354,7 +378,6 @@
       return [ canvas.width/2 + rx*world.cam.scale, canvas.height/2 - ry*world.cam.scale ];
     }
 
-    // Visual centerpieces
     function drawBlackHoleVisual(){
       if(!world.flags.showAccretion) return;
       const [cx,cy]=worldToScreen(0,0);
@@ -401,13 +424,14 @@
     }
 
     function drawBarOverlay(){
-      if(!world.flags.spiralBar) return;
+      if(!(world.preset==='spiral' && world.flags.spiralBar)) return;
       const [cx,cy]=worldToScreen(0,0);
-      const ang = world.flags.spiralBarSpeed * 0.02 * world.step; // rotate slowly
+      const dt_eff = (parseFloat(ctl.dt.value)||0.02) * (parseFloat(ctl.speed.value)||1);
+      const t = world.step * dt_eff;
+      const ang = world.flags.spiralBarSpeed * t + (world.flags.spiralBarPhase0||0);
       ctx.save();
       ctx.translate(cx,cy);
       ctx.rotate(ang);
-      // bar as elongated luminous ellipse
       const rx=120, ry=24;
       const grd = ctx.createRadialGradient(0,0, 6, 0,0, rx);
       grd.addColorStop(0,'rgba(255,230,160,0.8)');
@@ -422,12 +446,10 @@
       if(ctl.trails.value==='off'){ ctx.clearRect(0,0,canvas.width,canvas.height); ctx.fillStyle='rgba(11,16,32,0.22)'; ctx.fillRect(0,0,canvas.width,canvas.height); }
       else { ctx.fillStyle='rgba(5,8,17,0.08)'; ctx.fillRect(0,0,canvas.width,canvas.height); }
 
-      // center visuals based on preset
       if(world.preset==='bh'){ drawBlackHoleVisual(); }
       if(world.preset==='solar_general' || world.preset==='solar_real'){ drawSunVisual(); }
       if(world.preset==='spiral'){ drawBarOverlay(); }
 
-      // subtle axes
       ctx.strokeStyle='#1a203c'; ctx.lineWidth=1;
       let a=worldToScreen(-1000,0), b=worldToScreen(1000,0); ctx.beginPath(); ctx.moveTo(a[0],a[1]); ctx.lineTo(b[0],b[1]); ctx.stroke();
       a=worldToScreen(0,-1000); b=worldToScreen(0,1000); ctx.beginPath(); ctx.moveTo(a[0],a[1]); ctx.lineTo(b[0],b[1]); ctx.stroke();
@@ -455,7 +477,10 @@
       const n=parseInt(ctl.nBodies.value,10)||200;
       const mMin=parseFloat(ctl.mMin.value)||0.5, mMax=parseFloat(ctl.mMax.value)||3, radius=parseFloat(ctl.spawnR.value)||0.65;
       world.preset = ctl.preset.value;
-      setExtrasUI(world.preset); // update context UI
+      setExtrasUI(world.preset);
+      if(world.preset==='spiral' && world.flags.spiralBar){
+        world.flags.spiralBarPhase0 = (world.flags.spiralBarRandom ? Math.random()*Math.PI*2 : 0);
+      }
       world.bodies = createBodies(n,{mMin,mMax,radius,preset:world.preset});
       world.step=0; computeAccelerations(world.bodies, parseFloat(ctl.G.value)||1, Math.pow(parseFloat(ctl.eps.value)||0.02,2));
       overlay.textContent='Running… (Space to pause)';
@@ -477,16 +502,12 @@
     function applyPresetDefaults(p){
       if(p==='solar_real'){
         ctl.dt.value='0.004'; ctl.eps.value='0.002'; ctl.trails.value='long'; ctl.nBodies.value='200'; ctl.spawnR.value='1.2';
-        world.flags.showSolarFlares = true;
       }else if(p==='bh'){
         ctl.dt.value='0.006'; ctl.eps.value='0.01'; ctl.trails.value='short'; ctl.nBodies.value='1000'; ctl.spawnR.value='0.95';
-        world.flags.showAccretion = true;
       }else if(p==='spiral'){
         ctl.dt.value='0.01'; ctl.eps.value='0.02'; ctl.trails.value='short'; ctl.nBodies.value='1500'; ctl.spawnR.value='1.2';
-        world.flags.spiralBar = false; world.flags.spiralBarSpeed = 0.6;
       }else if(p==='solar_general'){
         ctl.dt.value='0.006'; ctl.eps.value='0.004'; ctl.trails.value='short'; ctl.nBodies.value='8'; ctl.spawnR.value='1.0';
-        world.flags.showSolarFlares = true;
       }else if(p==='disk'){
         ctl.dt.value='0.012'; ctl.eps.value='0.02'; ctl.trails.value='short'; ctl.nBodies.value='900'; ctl.spawnR.value='0.9';
       }else if(p==='binary'){
@@ -494,7 +515,6 @@
       }else{ applyDefaults(); }
     }
 
-    // UI wiring
     ctl.btnStart.addEventListener('click',()=>{ world.paused=false; log('Start clicked'); });
     ctl.btnPause.addEventListener('click',togglePause);
     ctl.btnReset.addEventListener('click',reset);
@@ -508,7 +528,6 @@
     ['nBodies','seed','mMin','mMax','spawnR','G','dt','eps','speed','collisions','bounds','trails','radius']
       .forEach(id=>{ document.getElementById(id).addEventListener('change',()=>{ reset(); }); });
 
-    // init
     applyDefaults();
     reset();
     drawTrackball(); updateTbLabels();
