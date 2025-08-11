@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>N‑Body Playground — v7.7.1 (Standalone)</title>
+<title>N‑Body Playground — v7.9 (Standalone, Trails + Trackball)</title>
 <style>
   :root{ --bg:#0b1020; --text:#e6ebff; --muted:#8ea0d0; --accent:#6aa6ff; }
   *{box-sizing:border-box}
   html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif}
-  #wrap{display:grid;grid-template-columns:380px 1fr;height:100vh}
+  #wrap{display:grid;grid-template-columns:410px 1fr;height:100vh}
   #controls{background:linear-gradient(180deg,#0f1530 0%,#0b1020 100%);border-right:1px solid #1f2a4d;padding:14px;overflow:auto}
   h1{font-size:18px;margin:6px 0}
   h2{font-size:12px;font-weight:700;margin:14px 0 6px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase}
@@ -32,17 +32,28 @@
   <aside id="controls">
     <h1>N‑Body Playground (3D)</h1>
 
-    <h2>Setup</h2>
+    <h2>Presets</h2>
+    <label class="row"><span>Setup</span>
+      <select id="preset">
+        <option value="random">Random Cloud</option>
+        <option value="spiral">Spiral Galaxy (disk)</option>
+        <option value="bh">Black Hole + Stars</option>
+        <option value="solar">General Solar System</option>
+        <option value="binary">Binary + Field</option>
+      </select>
+    </label>
+    <label class="row"><span>Cloud: start stationary</span><input id="cloudStill" type="checkbox" checked></label>
+
+    <h2>Counts & Mass</h2>
     <div class="row">
-      <label class="row"><span>N</span><input id="nBodies" type="number" min="50" max="2000" step="50" value="800"></label>
+      <label class="row"><span>N</span><input id="nBodies" type="number" min="50" max="3000" step="50" value="1200"></label>
       <label class="row"><span>Seed</span><input id="seed" type="number" min="0" max="999999" step="1" value="42"></label>
     </div>
     <div class="row">
-      <label class="row"><span>Mass min</span><input id="mMin" type="number" min="0.05" step="0.05" value="0.2"></label>
+      <label class="row"><span>Mass min</span><input id="mMin" type="number" min="0.05" step="0.05" value="0.25"></label>
       <label class="row"><span>Mass max</span><input id="mMax" type="number" min="0.05" step="0.05" value="3.0"></label>
     </div>
-    <label class="row"><span>Spawn radius</span><input id="spawnR" type="range" min="0.05" max="3.0" step="0.01" value="1.4"></label>
-    <label class="row"><span>Cloud: start stationary</span><input id="cloudStill" type="checkbox" checked></label>
+    <label class="row"><span>Spawn radius</span><input id="spawnR" type="range" min="0.05" max="3.0" step="0.01" value="1.2"></label>
 
     <h2>Physics</h2>
     <div class="row">
@@ -51,13 +62,19 @@
     </div>
     <div class="row">
       <label class="row"><span>Softening ε</span><input id="eps" type="number" step="0.0005" value="0.02"></label>
-      <label class="row"><span>Speed ×</span><input id="speed" type="range" min="0.25" max="8" step="0.25" value="1.5"></label>
+      <label class="row"><span>Speed ×</span><input id="speed" type="range" min="0.25" max="8" step="0.25" value="1.25"></label>
     </div>
 
     <h2>Rendering</h2>
     <div class="row">
-      <label class="row"><span>Base point size</span><input id="radius" type="range" min="1" max="8" step="0.5" value="4.0"></label>
+      <label class="row"><span>Base point size</span><input id="radius" type="range" min="1" max="8" step="0.5" value="4.5"></label>
       <label class="row"><span>Glow</span><input id="glow" type="checkbox" checked></label>
+    </div>
+    <div class="row">
+      <label class="row"><span>Trails</span>
+        <select id="trails"><option value="off">Off</option><option value="short">Short</option><option value="long">Long</option><option value="ultra" selected>Ultra</option></select>
+      </label>
+      <label class="row"><span>Trail persistence</span><input id="trailAlpha" type="range" min="0.005" max="0.2" step="0.005" value="0.02"></label>
     </div>
 
     <h2>Camera</h2>
@@ -86,16 +103,20 @@
 <script>
 (function(){
   'use strict';
-  const VERSION='v7.7.1-standalone';
+  const VERSION='v7.9-standalone-trails-trackball';
   const overlay = document.getElementById('overlay');
   const diag = document.getElementById('diag');
   function log(msg){ const t=new Date().toLocaleTimeString(); diag.textContent += `\\n[${t}] ${msg}`; diag.scrollTop = diag.scrollHeight; }
+  window.addEventListener('error', e=>log('ERROR: '+(e.message||e)));
+  window.addEventListener('unhandledrejection', e=>log('REJECTION: '+e.reason));
 
   const $=id=>document.getElementById(id);
   const ctl={
+    preset:$('preset'),
     nBodies:$('nBodies'), seed:$('seed'), mMin:$('mMin'), mMax:$('mMax'), spawnR:$('spawnR'), cloudStill:$('cloudStill'),
     G:$('G'), dt:$('dt'), eps:$('eps'), speed:$('speed'),
     radius:$('radius'), glow:$('glow'),
+    trails:$('trails'), trailAlpha:$('trailAlpha'),
     btnStart:$('btnStart'), btnPause:$('btnPause'), btnReset:$('btnReset'), btnFit:$('btnFit'),
     camTxt:$('camTxt')
   };
@@ -109,7 +130,7 @@
   log(VERSION+' — WebGL OK: '+gl.getParameter(gl.VERSION));
 
   // Resize
-  function ensureSize(){ const dpr=Math.max(1,window.devicePixelRatio||1); const rect=canvas.getBoundingClientRect(); const w=Math.max(2,Math.floor(rect.width*dpr)); const h=Math.max(2,Math.floor(rect.height*dpr)); if(canvas.width!==w||canvas.height!==h){ canvas.width=w; canvas.height=h; gl.viewport(0,0,w,h); } }
+  function ensureSize(){ const dpr=Math.max(1,window.devicePixelRatio||1); const rect=canvas.getBoundingClientRect(); const w=Math.max(2,Math.floor(rect.width*dpr)); const h=Math.max(2,Math.floor(rect.height*dpr)); if(canvas.width!==w||canvas.height!==h){ canvas.width=w; canvas.height=h; gl.viewport(0,0,w,h); fboDirty=true; } }
   function fullResize(){ main.style.transform='translateZ(0)'; void main.offsetHeight; main.style.transform=''; ensureSize(); }
   fullResize(); window.addEventListener('resize', fullResize);
 
@@ -149,36 +170,75 @@
       gl_FragColor=vec4(col, edge);
     }`;
 
-  const prog = makeProgram(vsPoints, fsPoints);
-  const loc = {
-    a_pos: gl.getAttribLocation(prog,'a_pos'),
-    a_col: gl.getAttribLocation(prog,'a_col'),
-    a_size: gl.getAttribLocation(prog,'a_size'),
-    u_mvp: gl.getUniformLocation(prog,'u_mvp'),
-    u_pointSize: gl.getUniformLocation(prog,'u_pointSize'),
-    u_glow: gl.getUniformLocation(prog,'u_glow')
+  const vsQuad = `
+    attribute vec2 a_pos;
+    attribute vec2 a_uv;
+    varying vec2 vuv;
+    void main(){ vuv=a_uv; gl_Position=vec4(a_pos,0.0,1.0); }`;
+
+  const fsDecay = `
+    precision mediump float;
+    varying vec2 vuv;
+    uniform sampler2D u_prev;
+    uniform vec3 u_bg;
+    uniform float u_decay;
+    void main(){
+      vec4 prev=texture2D(u_prev, vuv);
+      vec3 col = mix(prev.rgb, u_bg, u_decay);
+      gl_FragColor=vec4(col, 1.0);
+    }`;
+
+  const fsBlit = `
+    precision mediump float;
+    varying vec2 vuv;
+    uniform sampler2D u_tex;
+    void main(){ gl_FragColor=texture2D(u_tex, vuv); }`;
+
+  const progPoints = makeProgram(vsPoints, fsPoints);
+  const locP = {
+    a_pos: gl.getAttribLocation(progPoints,'a_pos'),
+    a_col: gl.getAttribLocation(progPoints,'a_col'),
+    a_size: gl.getAttribLocation(progPoints,'a_size'),
+    u_mvp: gl.getUniformLocation(progPoints,'u_mvp'),
+    u_pointSize: gl.getUniformLocation(progPoints,'u_pointSize'),
+    u_glow: gl.getUniformLocation(progPoints,'u_glow')
   };
+
+  const progDecay = makeProgram(vsQuad, fsDecay);
+  const locD = { a_pos: gl.getAttribLocation(progDecay,'a_pos'), a_uv: gl.getAttribLocation(progDecay,'a_uv'), u_prev: gl.getUniformLocation(progDecay,'u_prev'), u_bg: gl.getUniformLocation(progDecay,'u_bg'), u_decay: gl.getUniformLocation(progDecay,'u_decay') };
+
+  const progBlit = makeProgram(vsQuad, fsBlit);
+  const locB = { a_pos: gl.getAttribLocation(progBlit,'a_pos'), a_uv: gl.getAttribLocation(progBlit,'a_uv'), u_tex: gl.getUniformLocation(progBlit,'u_tex') };
 
   // Buffers
   const posBuf = gl.createBuffer();
   const colBuf = gl.createBuffer();
   const sizeBuf = gl.createBuffer();
+  const quadBuf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+    -1,-1,  0,0,
+     1,-1,  1,0,
+    -1, 1,  0,1,
+     1, 1,  1,1
+  ]), gl.STATIC_DRAW);
 
   gl.enable(gl.BLEND);
   gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
   gl.clearColor(0.03,0.05,0.12,1);
+  const bg=[0.03,0.05,0.12];
 
-  // Matrices (minimal)
+  // Matrices
   function mat4_identity(){ return [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]; }
   function mat4_mul(a,b){ const o=new Float32Array(16); for(let i=0;i<4;i++) for(let j=0;j<4;j++){ o[i*4+j]=a[i*4+0]*b[0*4+j]+a[i*4+1]*b[1*4+j]+a[i*4+2]*b[2*4+j]+a[i*4+3]*b[3*4+j]; } return o; }
   function mat4_perspective(fovy,aspect,near,far){ const f=1/Math.tan(fovy/2), nf=1/(near-far); return new Float32Array([f/aspect,0,0,0, 0,f,0,0, 0,0,(far+near)*nf,-1, 0,0,(2*far*near)*nf,0]); }
   function mat4_translate(m,x,y,z){ const t=mat4_identity(); t[12]=x; t[13]=y; t[14]=z; return mat4_mul(m,t); }
   function mat4_rotateY(m,a){ const c=Math.cos(a), s=Math.sin(a); const r=[c,0,s,0, 0,1,0,0, -s,0,c,0, 0,0,0,1]; return mat4_mul(m,r); }
   function mat4_rotateX(m,a){ const c=Math.cos(a), s=Math.sin(a); const r=[1,0,0,0, 0,c,-s,0, 0,s,c,0, 0,0,0,1]; return mat4_mul(m,r); }
-  function cameraMVP(){ ensureSize(); const w=canvas.width,h=canvas.height,aspect=w/Math.max(1,h); let P=mat4_perspective(50*Math.PI/180,aspect,0.05,500.0); let V=mat4_identity(); V=mat4_rotateX(V,world.cam.elevation); V=mat4_rotateY(V,world.cam.azimuth); V=mat4_translate(V,-world.cam.panX,-world.cam.panY,-world.cam.distance); return mat4_mul(P,V); }
+  function cameraMVP(){ ensureSize(); const w=canvas.width,h=canvas.height,aspect=w/Math.max(1,h); let P=mat4_perspective(50*Math.PI/180,aspect,0.05,600.0); let V=mat4_identity(); V=mat4_rotateX(V,world.cam.elevation); V=mat4_rotateY(V,world.cam.azimuth); V=mat4_translate(V,-world.cam.panX,-world.cam.panY,-world.cam.distance); return mat4_mul(P,V); }
 
   // Data & physics
-  const MAXN=2000;
+  const MAXN=3000;
   const pos = new Float32Array(3*MAXN);
   const col = new Float32Array(3*MAXN);
   const siz = new Float32Array(MAXN);
@@ -186,29 +246,74 @@
   const pick=i=>palette[i%palette.length];
   function seeded(seed){ let a=(seed>>>0)||1; return ()=>{ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,a|1); t^=t+Math.imul(t^t>>>7,t|61); return ((t^t>>>14)>>>0)/4294967296; }; }
 
-  const bodies=[]; // array of objects {x,y,z,vx,vy,vz,m,color[3]}
-  const world={ step:0, paused:false, cam:{ azimuth:0.4, elevation:0.35, distance:6.0, panX:0, panY:0 } };
+  const bodies=[]; // {x,y,z,vx,vy,vz,ax,ay,az,m,color[3]}
+  const world={ step:0, paused:false, cam:{ azimuth:0.4, elevation:0.35, distance:7.0, panX:0, panY:0 } };
 
-  function createCloud(){
+  function createSystem(){
     bodies.length=0;
-    const n=Math.min(MAXN, Math.max(1, parseInt(ctl.nBodies.value,10)||800));
-    const mMin=parseFloat(ctl.mMin.value)||0.2, mMax=parseFloat(ctl.mMax.value)||3.0, R=parseFloat(ctl.spawnR.value)||1.4;
+    const preset=ctl.preset.value;
+    const n=Math.min(MAXN, Math.max(1, parseInt(ctl.nBodies.value,10)||1200));
+    const mMin=parseFloat(ctl.mMin.value)||0.25, mMax=parseFloat(ctl.mMax.value)||3.0, R=parseFloat(ctl.spawnR.value)||1.2;
     const rnd=seeded(parseInt(ctl.seed.value,10)||42);
-    const still = ctl.cloudStill.checked;
-    for(let i=0;i<n;i++){
-      const r=R*Math.pow(rnd(),1/3);
-      const th=Math.acos(1-2*rnd());
-      const ph=2*Math.PI*rnd();
-      const x=r*Math.sin(th)*Math.cos(ph), y=r*Math.sin(th)*Math.sin(ph), z=r*Math.cos(th);
-      const m=mMin+(mMax-mMin)*Math.pow(rnd(),0.6);
-      const vx = still?0:(rnd()-0.5)*0.12;
-      const vy = still?0:(rnd()-0.5)*0.12;
-      const vz = still?0:(rnd()-0.5)*0.12;
-      const c=pick(i);
-      bodies.push({x,y,z,vx,vy,vz,m,color:c});
+    function push(x,y,z,vx,vy,vz,m,c){ bodies.push({x,y,z,vx,vy,vz,ax:0,ay:0,az:0,m,color:c}); }
+
+    if(preset==='random'){
+      const still = ctl.cloudStill.checked;
+      for(let i=0;i<n;i++){
+        const r=R*Math.pow(rnd(),1/3);
+        const th=Math.acos(1-2*rnd());
+        const ph=2*Math.PI*rnd();
+        const x=r*Math.sin(th)*Math.cos(ph), y=r*Math.sin(th)*Math.sin(ph), z=r*Math.cos(th);
+        const m=mMin+(mMax-mMin)*Math.pow(rnd(),0.6);
+        const vx=still?0:(rnd()-0.5)*0.12, vy=still?0:(rnd()-0.5)*0.12, vz=still?0:(rnd()-0.5)*0.12;
+        push(x,y,z,vx,vy,vz,m,pick(i));
+      }
+    } else if(preset==='spiral'){
+      const haloM=60, core=0.2, thickness=0.06;
+      for(let i=0;i<n;i++){
+        const t=rnd(), arm=(i%2)*Math.PI, r=R*(0.08+0.92*t), ang=arm + 2.5*Math.log(1+3*r);
+        const x=r*Math.cos(ang), y=r*Math.sin(ang), z=(rnd()-0.5)*thickness;
+        const m=mMin+(mMax-mMin)*rnd();
+        const GM = (20 + haloM*(r/(r+core)));
+        const v = Math.sqrt((parseFloat(ctl.G.value)||1)*GM/Math.max(r,0.02)); // flat-ish
+        const ax = Math.atan2(y,x);
+        const jitter=(rnd()-0.5)*0.03;
+        push(x,y,z, (-v*Math.sin(ax)+jitter), (v*Math.cos(ax)+jitter), (rnd()-0.5)*0.01, m, pick(i));
+      }
+      push(0,0,0,0,0,0,50,[1,0.83,0.5]); // bulge/core
+    } else if(preset==='bh'){
+      const M=250; push(0,0,0,0,0,0,M,[1,0.83,0.5]);
+      for(let i=0;i<n;i++){
+        const r=R*(0.15+0.85*Math.sqrt(rnd()));
+        const a=rnd()*2*Math.PI; const tilt=(rnd()-0.5)*0.15;
+        const x=r*Math.cos(a), y=r*Math.sin(a), z=tilt*r;
+        const v=Math.sqrt((parseFloat(ctl.G.value)||1)*M/Math.max(r,0.01))*0.98;
+        const e=(rnd()-0.5)*0.1;
+        push(x,y,z, -v*Math.sin(a)*(1+e),  v*Math.cos(a)*(1-e), (rnd()-0.5)*0.02, mMin+(mMax-mMin)*rnd(), pick(i));
+      }
+    } else if(preset==='solar'){
+      const starM=300; push(0,0,0,0,0,0,starM,[1,0.83,0.5]);
+      const planets=Math.max(1, Math.min(12, n));
+      for(let i=0;i<planets;i++){
+        const r=0.12+(i+1)*0.1;
+        const inc=(rnd()-0.5)*0.15;
+        const a=rnd()*2*Math.PI;
+        const x=r*Math.cos(a), y=r*Math.sin(a)*Math.cos(inc), z=r*Math.sin(a)*Math.sin(inc);
+        const v=Math.sqrt((parseFloat(ctl.G.value)||1)*starM/r);
+        push(x,y,z, -v*Math.sin(a), v*Math.cos(a)*Math.cos(inc), v*Math.cos(a)*Math.sin(inc), 0.5+rnd()*1.5, pick(i));
+      }
+    } else if(preset==='binary'){
+      const M=30; push(-0.25,0,0,0,-0.35,0,M,[1,0.83,0.5]); push(0.25,0,0,0,0.35,0,M,[1,0.83,0.5]);
+      for(let i=0;i<n;i++){
+        const rr=0.8*R*Math.cbrt(Math.random()); const th=2*Math.PI*Math.random(); const ph=Math.acos(1-2*Math.random());
+        const x=rr*Math.sin(ph)*Math.cos(th), y=rr*Math.sin(ph)*Math.sin(th), z=rr*Math.cos(ph);
+        push(x,y,z,(Math.random()-0.5)*0.2,(Math.random()-0.5)*0.2,(Math.random()-0.5)*0.2, mMin+(mMax-mMin)*Math.random(), pick(i));
+      }
     }
+
     uploadBuffers();
     autoFit();
+    log(`${VERSION} — Reset: preset=${preset} bodies=${bodies.length}`);
   }
 
   function uploadBuffers(){
@@ -221,7 +326,7 @@
       pos[i*3]=b.x; pos[i*3+1]=b.y; pos[i*3+2]=b.z;
       col[i*3]=b.color[0]; col[i*3+1]=b.color[1]; col[i*3+2]=b.color[2];
       const t=(b.m-minM)/span;
-      siz[i]=0.75 + 1.75*t; // 1x..2.5x visual scaling
+      siz[i]=0.75 + 1.75*t; // 1x..2.5x
     }
     gl.bindBuffer(gl.ARRAY_BUFFER, posBuf); gl.bufferData(gl.ARRAY_BUFFER, pos.subarray(0, n*3), gl.DYNAMIC_DRAW);
     gl.bindBuffer(gl.ARRAY_BUFFER, colBuf); gl.bufferData(gl.ARRAY_BUFFER, col.subarray(0, n*3), gl.DYNAMIC_DRAW);
@@ -257,22 +362,99 @@
     world.step++;
   }
 
-  function render(){
-    ensureSize();
-    gl.clear(gl.COLOR_BUFFER_BIT);
-    gl.useProgram(prog);
-    const mvp=cameraMVP();
-    gl.uniformMatrix4fv(loc.u_mvp,false,mvp);
-    gl.uniform1f(loc.u_pointSize, parseFloat(ctl.radius.value)||4);
-    gl.uniform1i(loc.u_glow, ctl.glow.checked?1:0);
+  // Trails FBOs
+  let fboA=null, fboB=null, texA=null, texB=null, fboDirty=true;
+  function createTex(w,h){ const t=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,t); gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,null); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE); return t; }
+  function attach(t){ const f=gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER,f); gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,t,0); gl.bindFramebuffer(gl.FRAMEBUFFER,null); return f; }
+  function recreateFBOs(){
+    const w=canvas.width,h=canvas.height;
+    if(w<=0||h<=0) return;
+    [texA,texB].forEach(t=>t&&gl.deleteTexture(t));
+    [fboA,fboB].forEach(f=>f&&gl.deleteFramebuffer(f));
+    texA=createTex(w,h); texB=createTex(w,h);
+    fboA=attach(texA); fboB=attach(texB);
+    gl.bindFramebuffer(gl.FRAMEBUFFER,fboA); gl.clearColor(bg[0],bg[1],bg[2],1); gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.bindFramebuffer(gl.FRAMEBUFFER,fboB); gl.clearColor(bg[0],bg[1],bg[2],1); gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+    fboDirty=false;
+  }
+  recreateFBOs();
 
-    gl.bindBuffer(gl.ARRAY_BUFFER, posBuf); gl.enableVertexAttribArray(loc.a_pos); gl.vertexAttribPointer(loc.a_pos,3,gl.FLOAT,false,0,0);
-    gl.bindBuffer(gl.ARRAY_BUFFER, colBuf); gl.enableVertexAttribArray(loc.a_col); gl.vertexAttribPointer(loc.a_col,3,gl.FLOAT,false,0,0);
-    gl.bindBuffer(gl.ARRAY_BUFFER, sizeBuf); gl.enableVertexAttribArray(loc.a_size); gl.vertexAttribPointer(loc.a_size,1,gl.FLOAT,false,0,0);
+  function drawDecay(targetFBO, sourceTex, decay){
+    gl.bindFramebuffer(gl.FRAMEBUFFER, targetFBO);
+    gl.useProgram(progDecay);
+    gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
+    gl.enableVertexAttribArray(locD.a_pos); gl.vertexAttribPointer(locD.a_pos, 2, gl.FLOAT, false, 16, 0);
+    gl.enableVertexAttribArray(locD.a_uv);  gl.vertexAttribPointer(locD.a_uv,  2, gl.FLOAT, false, 16, 8);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, sourceTex);
+    gl.uniform1i(locD.u_prev, 0);
+    gl.uniform3f(locD.u_bg, bg[0],bg[1],bg[2]);
+    gl.uniform1f(locD.u_decay, decay);
+    gl.disable(gl.BLEND);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  }
+
+  function blitToScreen(tex){
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.useProgram(progBlit);
+    gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
+    gl.enableVertexAttribArray(locB.a_pos); gl.vertexAttribPointer(locB.a_pos, 2, gl.FLOAT, false, 16, 0);
+    gl.enableVertexAttribArray(locB.a_uv);  gl.vertexAttribPointer(locB.a_uv,  2, gl.FLOAT, false, 16, 8);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.uniform1i(locB.u_tex, 0);
+    gl.disable(gl.BLEND);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  }
+
+  function renderPoints(targetFBO, pointSize, additive){
+    gl.bindFramebuffer(gl.FRAMEBUFFER, targetFBO);
+    const mvp = cameraMVP();
+    gl.useProgram(progPoints);
+    gl.uniformMatrix4fv(locP.u_mvp,false,new Float32Array(mvp));
+    gl.uniform1f(locP.u_pointSize, pointSize);
+    gl.uniform1i(locP.u_glow, ctl.glow.checked?1:0);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, posBuf);
+    gl.enableVertexAttribArray(locP.a_pos);
+    gl.vertexAttribPointer(locP.a_pos, 3, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, colBuf);
+    gl.enableVertexAttribArray(locP.a_col);
+    gl.vertexAttribPointer(locP.a_col, 3, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, sizeBuf);
+    gl.enableVertexAttribArray(locP.a_size);
+    gl.vertexAttribPointer(locP.a_size, 1, gl.FLOAT, false, 0, 0);
+
+    gl.enable(gl.BLEND);
+    if(additive){ gl.blendFunc(gl.ONE, gl.ONE); } else { gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); }
     gl.drawArrays(gl.POINTS, 0, bodies.length);
   }
 
-  // Camera & controls
+  function render(){
+    if(fboDirty) recreateFBOs();
+
+    const baseSz = (parseFloat(ctl.radius.value)||4.5);
+    const mode=ctl.trails.value;
+
+    if(mode==='off'){
+      gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+      gl.clearColor(bg[0],bg[1],bg[2],1); gl.clear(gl.COLOR_BUFFER_BIT);
+      if(ctl.glow.checked){ renderPoints(null, baseSz*(2.0), true); }
+      renderPoints(null, baseSz, false);
+      return;
+    }
+    let decay = parseFloat(ctl.trailAlpha.value||'0.02');
+    if(mode==='short') decay = Math.max(decay,0.10);
+    else if(mode==='long') decay = Math.min(Math.max(decay,0.04),0.08);
+    else if(mode==='ultra') decay = Math.min(decay,0.03);
+
+    drawDecay(fboA, texB, decay);
+    if(ctl.glow.checked){ renderPoints(fboA, baseSz*2.0, true); }
+    renderPoints(fboA, baseSz, false);
+    blitToScreen(texA);
+    const tT=texA; texA=texB; texB=tT; const tF=fboA; fboA=fboB; fboB=tF;
+  }
+
+  // Camera & trackball-style controls
   (function controls(){
     const c=world.cam;
     const state={down:false, right:false, lastX:0,lastY:0};
@@ -292,13 +474,14 @@
     updateTxt();
   })();
 
+  // Fit
   function computeBounds(){
     if(!bodies.length) return {r:1,cx:0,cy:0,cz:0};
     let cx=0,cy=0,cz=0; for(const p of bodies){ cx+=p.x; cy+=p.y; cz+=p.z; } cx/=bodies.length; cy/=bodies.length; cz/=bodies.length;
     let r=0; for(const p of bodies){ const dx=p.x-cx, dy=p.y-cy, dz=p.z-cz; const d=Math.sqrt(dx*dx+dy*dy+dz*dz); if(d>r) r=d; }
     return {r:Math.max(0.1,r), cx, cy, cz};
   }
-  function fitDistance(){ const {r}=computeBounds(); const fovy=50*Math.PI/180; const margin=1.3; return r*margin/Math.tan(fovy/2)+0.5; }
+  function fitDistance(){ const {r}=computeBounds(); const fovy=50*Math.PI/180; const margin=1.35; return r*margin/Math.tan(fovy/2)+0.5; }
   function autoFit(){ const {cx,cy}=computeBounds(); world.cam.distance = fitDistance(); world.cam.panX=cx; world.cam.panY=-cy; }
 
   // Loop
@@ -311,14 +494,15 @@
   // Wire UI
   ctl.btnStart.addEventListener('click',()=>{ world.paused=false; overlay.textContent='Running… (Space to pause)'; });
   ctl.btnPause.addEventListener('click',()=>{ world.paused=!world.paused; overlay.textContent = world.paused?'Paused (Space to resume)':'Running… (Space to pause)'; ctl.btnPause.textContent = world.paused?'⏵ Resume':'⏸ Pause'; });
-  ctl.btnReset.addEventListener('click',()=>{ createCloud(); overlay.textContent='Running… (Space to pause)'; });
+  ctl.btnReset.addEventListener('click',()=>{ createSystem(); overlay.textContent='Running… (Space to pause)'; });
   ctl.btnFit.addEventListener('click',autoFit);
   window.addEventListener('keydown',e=>{ if(e.code==='Space'){ e.preventDefault(); ctl.btnPause.click(); } if(e.key==='a'||e.key==='A'){ autoFit(); }});
-  ['nBodies','seed','mMin','mMax','spawnR','G','dt','eps','cloudStill'].forEach(id=>$(id).addEventListener('change', createCloud));
-  ['speed','radius','glow'].forEach(id=>$(id).addEventListener('input', ()=>{}));
+
+  ['preset','nBodies','seed','mMin','mMax','spawnR','G','dt','eps','cloudStill'].forEach(id=>$(id).addEventListener('change', createSystem));
+  ['speed','radius','glow','trails','trailAlpha'].forEach(id=>$(id).addEventListener('input', ()=>{}));
 
   // Boot
-  createCloud();
+  createSystem();
   loop();
   log(VERSION+' — Ready.');
 })();
