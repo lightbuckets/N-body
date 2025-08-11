@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>N‑Body Playground — v7.6.1 (3D, Robust Trails)</title>
+<title>N‑Body Playground — v7.6.2 (3D, Robust Trails)</title>
 <style>
   :root{ --bg:#0b1020; --text:#e6ebff; --muted:#8ea0d0; --accent:#6aa6ff; }
   *{box-sizing:border-box}
@@ -20,7 +20,7 @@
   .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:8px 10px;margin:4px 0;border:1px solid #33406b;border-radius:8px;background:#0c1430;color:#e6ebff;text-decoration:none;cursor:pointer;user-select:none}
   .btn.primary{background:linear-gradient(180deg,#1b2a66,#132558);border-color:#4054a8;color:#fff}
   .small{font-size:12px;color:#8ea0d0;line-height:1.4}
-  #diag{background:#0c1430;border:1px solid #2a3a7a;border-radius:8px;padding:8px;max-height:140px;overflow:auto;font-size:12px;color:#cde;white-space:pre-wrap}
+  #diag{background:#0c1430;border:1px solid #2a3a7a;border-radius:8px;padding:8px;max-height:160px;overflow:auto;font-size:12px;color:#cde;white-space:pre-wrap}
   #main{position:relative}
   #canvas{width:100%;height:100%;display:block}
   #overlay{position:absolute;right:12px;top:12px;z-index:5;padding:6px 8px;border-radius:8px;background:#141b36cc;border:1px solid #2a3a7a;color:#c9d4ff;font-size:12px;pointer-events:none}
@@ -109,6 +109,7 @@
 
 <script>
 (function(){
+  const VERSION = "v7.6.2";
   const overlay = document.getElementById('overlay');
   const diag = document.getElementById('diag');
   function log(msg){ const t=new Date().toLocaleTimeString(); diag.textContent += `\\n[${t}] ${msg}`; diag.scrollTop = diag.scrollHeight; }
@@ -133,25 +134,34 @@
   const canvas=$('canvas'), main=$('main');
   let gl = canvas.getContext('webgl', {antialias:true, alpha:false, preserveDrawingBuffer:false});
   if(!gl){ gl = canvas.getContext('experimental-webgl'); }
-  if(!gl){ log('WebGL not available — try Chrome/Firefox on desktop.'); return; }
-  log('WebGL OK: '+gl.getParameter(gl.VERSION));
+  if(!gl){ log(VERSION+' — WebGL not available — try Chrome/Firefox on desktop.'); return; }
+  log(VERSION+' — WebGL OK: '+gl.getParameter(gl.VERSION));
 
-  function resize(){ const dpr=Math.max(1,window.devicePixelRatio||1); const rect=canvas.getBoundingClientRect(); const w=Math.max(2,Math.floor(rect.width*dpr)); const h=Math.max(2,Math.floor(rect.height*dpr)); if(canvas.width!==w||canvas.height!==h){ canvas.width=w; canvas.height=h; gl.viewport(0,0,w,h); recreateFBOs(); } }
+  function resize(){
+    const dpr=Math.max(1,window.devicePixelRatio||1);
+    const rect=canvas.getBoundingClientRect();
+    const w=Math.max(2,Math.floor(rect.width*dpr));
+    const h=Math.max(2,Math.floor(rect.height*dpr));
+    if(canvas.width!==w||canvas.height!==h){
+      canvas.width=w; canvas.height=h; gl.viewport(0,0,w,h);
+      if(recreateFBOs) recreateFBOs();
+    }
+  }
   function fullResize(){ main.style.transform='translateZ(0)'; void main.offsetHeight; main.style.transform=''; resize(); }
   fullResize(); window.addEventListener('resize', fullResize);
 
-  // Shader helpers
+  // ==== Shader helpers ====
   function makeProgram(vsSrc,fsSrc){
     const vs=gl.createShader(gl.VERTEX_SHADER); gl.shaderSource(vs,vsSrc); gl.compileShader(vs);
-    if(!gl.getShaderParameter(vs, gl.COMPILE_STATUS)){ const info=gl.getShaderInfoLog(vs); log('VS error: '+info); throw new Error(info||'VS'); }
+    if(!gl.getShaderParameter(vs, gl.COMPILE_STATUS)){ const info=gl.getShaderInfoLog(vs)||'unknown'; log('VS error: '+info); throw new Error(info); }
     const fs=gl.createShader(gl.FRAGMENT_SHADER); gl.shaderSource(fs,fsSrc); gl.compileShader(fs);
-    if(!gl.getShaderParameter(fs, gl.COMPILE_STATUS)){ const info=gl.getShaderInfoLog(fs); log('FS error: '+info); throw new Error(info||'FS'); }
+    if(!gl.getShaderParameter(fs, gl.COMPILE_STATUS)){ const info=gl.getShaderInfoLog(fs)||'unknown'; log('FS error: '+info); throw new Error(info); }
     const p=gl.createProgram(); gl.attachShader(p,vs); gl.attachShader(p,fs); gl.linkProgram(p);
-    if(!gl.getProgramParameter(p, gl.LINK_STATUS)){ const info=gl.getProgramInfoLog(p); log('LINK error: '+info); throw new Error(info||'LINK'); }
+    if(!gl.getProgramParameter(p, gl.LINK_STATUS)){ const info=gl.getProgramInfoLog(p)||'unknown'; log('LINK error: '+info); throw new Error(info); }
     return p;
   }
 
-  // Programs
+  // ==== Programs ====
   const vsPoints = `
     attribute vec3 a_pos;
     attribute vec3 a_col;
@@ -203,7 +213,7 @@
   const progBlit = makeProgram(vsQuad, fsBlit);
   const locB = { a_pos: gl.getAttribLocation(progBlit,'a_pos'), a_uv: gl.getAttribLocation(progBlit,'a_uv'), u_tex: gl.getUniformLocation(progBlit,'u_tex') };
 
-  // Buffers
+  // ==== Buffers ====
   const posBuf = gl.createBuffer();
   const colBuf = gl.createBuffer();
   const quadBuf = gl.createBuffer();
@@ -221,7 +231,7 @@
   gl.clearColor(0.03,0.05,0.12,1);
   const bg = [0.03,0.05,0.12];
 
-  // Mat4
+  // ==== Mat4 ====
   function mat4_identity(){ return [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]; }
   function mat4_mul(a,b){ const o=new Array(16); for(let i=0;i<4;i++) for(let j=0;j<4;j++){ o[i*4+j]=a[i*4+0]*b[0*4+j]+a[i*4+1]*b[1*4+j]+a[i*4+2]*b[2*4+j]+a[i*4+3]*b[3*4+j]; } return o; }
   function mat4_perspective(fovy,aspect,near,far){ const f=1/Math.tan(fovy/2), nf=1/(near-far); return [f/aspect,0,0,0, 0,f,0,0, 0,0,(far+near)*nf,-1, 0,0,(2*far*near)*nf,0]; }
@@ -230,12 +240,12 @@
   function mat4_rotateX(m,a){ const c=Math.cos(a), s=Math.sin(a); const r=[1,0,0,0, 0,c,-s,0, 0,s,c,0, 0,0,0,1]; return mat4_mul(m,r); }
   function cameraMVP(){ fullResize(); const w=canvas.width,h=canvas.height,aspect=w/Math.max(1,h); let P=mat4_perspective(50*Math.PI/180,aspect,0.05,200.0); let V=mat4_identity(); V=mat4_rotateX(V,world.cam.elevation); V=mat4_rotateY(V,world.cam.azimuth); V=mat4_translate(V,-world.cam.panX,-world.cam.panY,-world.cam.distance); return mat4_mul(P,V); }
 
-  // RNG & palette
+  // ==== RNG & palette ====
   function seeded(seed){ let a=(seed>>>0)||1; return ()=>{ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,a|1); t^=t+Math.imul(t^t>>>7,t|61); return ((t^t>>>14)>>>0)/4294967296; }; }
   const palette=[[0.64,0.72,1],[0.62,0.89,1],[1,0.83,0.5],[1,0.62,0.7],[0.84,1,0.62],[0.78,0.66,1],[0.62,1,0.85]];
   const pick=i=>palette[i%palette.length];
 
-  // Presets
+  // ==== Presets ====
   function createBodies(n,opts){
     const out=[]; const {mMin=0.5,mMax=3, radius=0.9, preset='random'}=opts||{}; const R=radius;
     const rnd=seeded(parseInt(ctl.seed.value,10)||42);
@@ -259,7 +269,7 @@
     return out;
   }
 
-  // Physics
+  // ==== Physics ====
   function computeAccelerations(bodies,G,eps2){
     const n=bodies.length;
     for(let i=0;i<n;i++){ const b=bodies[i]; b.ax=b.ay=b.az=0; }
@@ -289,7 +299,7 @@
     world.step++;
   }
 
-  // GPU upload
+  // ==== GPU upload ====
   const pos = new Float32Array(3*4000); const col = new Float32Array(3*4000);
   function uploadBuffers(){
     const n=world.bodies.length;
@@ -298,16 +308,23 @@
     gl.bindBuffer(gl.ARRAY_BUFFER, colBuf); gl.bufferData(gl.ARRAY_BUFFER, col.subarray(0, n*3), gl.DYNAMIC_DRAW);
   }
 
-  // FBO setup for trails (ping‑pong)
+  // ==== FBO setup for trails (ping‑pong) ====
   let fboA=null, fboB=null, texA=null, texB=null;
   function createTex(w,h){ const t=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,t); gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,null); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE); return t; }
   function attach(t){ const f=gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER,f); gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,t,0); gl.bindFramebuffer(gl.FRAMEBUFFER,null); return f; }
-  function recreateFBOs(){ const w=canvas.width,h=canvas.height; if(texA) gl.deleteTexture(texA); if(texB) gl.deleteTexture(texB); if(fboA) gl.deleteFramebuffer(fboA); if(fboB) gl.deleteFramebuffer(fboB); texA=createTex(w,h); texB=createTex(w,h); fboA=attach(texA); fboB=attach(texB);
+  function recreateFBOs(){
+    const w=canvas.width,h=canvas.height;
+    if(w<=0||h<=0) return;
+    if(texA) gl.deleteTexture(texA); if(texB) gl.deleteTexture(texB);
+    if(fboA) gl.deleteFramebuffer(fboA); if(fboB) gl.deleteFramebuffer(fboB);
+    texA=createTex(w,h); texB=createTex(w,h);
+    fboA=attach(texA); fboB=attach(texB);
     // clear both
     gl.bindFramebuffer(gl.FRAMEBUFFER,fboA); gl.clearColor(bg[0],bg[1],bg[2],1); gl.clear(gl.COLOR_BUFFER_BIT);
     gl.bindFramebuffer(gl.FRAMEBUFFER,fboB); gl.clearColor(bg[0],bg[1],bg[2],1); gl.clear(gl.COLOR_BUFFER_BIT);
     gl.bindFramebuffer(gl.FRAMEBUFFER,null);
   }
+  // initial FBOs AFTER programs/buffers are ready and canvas sized
   recreateFBOs();
 
   function drawDecay(targetFBO, sourceTex, decay){
@@ -320,7 +337,7 @@
     gl.uniform1i(locD.u_prev, 0);
     gl.uniform3f(locD.u_bg, bg[0],bg[1],bg[2]);
     gl.uniform1f(locD.u_decay, decay);
-    gl.disable(gl.BLEND); // overwrite
+    gl.disable(gl.BLEND);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
 
@@ -332,7 +349,7 @@
     gl.enableVertexAttribArray(locB.a_uv);  gl.vertexAttribPointer(locB.a_uv,  2, gl.FLOAT, false, 16, 8);
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tex);
     gl.uniform1i(locB.u_tex, 0);
-    gl.disable(gl.BLEND); // overwrite
+    gl.disable(gl.BLEND);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
 
@@ -350,12 +367,15 @@
     gl.enableVertexAttribArray(locP.a_col);
     gl.vertexAttribPointer(locP.a_col, 3, gl.FLOAT, false, 0, 0);
 
-    if(additive){ gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE); }
-    else { gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); }
+    gl.enable(gl.BLEND);
+    if(additive){ gl.blendFunc(gl.ONE, gl.ONE); } else { gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); }
     gl.drawArrays(gl.POINTS, 0, world.bodies.length);
   }
 
   function render(){
+    // Safety: ensure FBOs exist
+    if(!fboA || !fboB || !texA || !texB){ recreateFBOs(); }
+
     const mode=ctl.trails.value;
     if(mode==='off'){
       gl.bindFramebuffer(gl.FRAMEBUFFER,null);
@@ -385,10 +405,10 @@
     // 3) blit A to screen
     blitToScreen(texA);
     // 4) swap A/B
-    let t=texA; texA=texB; texB=t; let f=fboA; fboA=fboB; fboB=f;
+    const tT=texA; texA=texB; texB=tT; const tF=fboA; fboA=fboB; fboB=tF;
   }
 
-  // Camera
+  // ==== Camera ====
   (function cameraControls(){
     const state={down:false, right:false, lastX:0,lastY:0};
     canvas.addEventListener('mousedown',e=>{ state.down=true; state.right=(e.button===2); state.lastX=e.clientX; state.lastY=e.clientY; e.preventDefault(); });
@@ -406,10 +426,10 @@
     ctl.camTxt.textContent = `${(world.cam.azimuth*180/Math.PI)|0}° / ${(world.cam.elevation*180/Math.PI)|0}° / ${world.cam.distance.toFixed(2)}`;
   })();
 
-  // Stats
+  // ==== Stats ====
   function computeEnergy(){ const G=parseFloat(ctl.G.value)||1, eps2=Math.pow(parseFloat(ctl.eps.value)||0.02,2); let K=0,U=0; const b=world.bodies; for(const p of b){ K += 0.5*p.m*(p.vx*p.vx+p.vy*p.vy+p.vz*p.vz); } for(let i=0;i<b.length;i++){ for(let j=i+1;j<b.length;j++){ const dx=b[j].x-b[i].x, dy=b[j].y-b[i].y, dz=b[j].z-b[i].z; const r=Math.sqrt(dx*dx+dy*dy+dz*dz+eps2); U += -G*b[i].m*b[j].m/r; } } ctl.statE.textContent=(K+U).toFixed(3); }
 
-  // Reset and loop
+  // ==== Reset and loop ====
   function reset(){
     world.preset = ctl.preset.value;
     const n=parseInt(ctl.nBodies.value,10)||1200;
@@ -419,20 +439,21 @@
     world.step=0;
     uploadBuffers();
     overlay.textContent='Running… (Space to pause)';
-    log(`Reset — preset=${world.preset} bodies=${world.bodies.length}`);
+    log(`${VERSION} — Reset: preset=${world.preset} bodies=${world.bodies.length}`);
   }
 
   function startLoop(){
-    let last=performance.now(), acc=0, frames=0;
+    let last=(window.performance&&performance.now)?performance.now():Date.now(), acc=0, frames=0;
     function tick(t){
-      const dt=t-last; last=t;
+      const now=(t!==undefined)?t:((window.performance&&performance.now)?performance.now():Date.now());
+      const dt=now-last; last=now;
       if(!world.paused){ stepSystem(); if(world.step%4===0){ computeEnergy(); uploadBuffers(); } }
       render();
       frames++; acc+=dt; if(acc>=500){ ctl.statFPS.textContent = String(Math.round(frames/(acc/1000))); frames=0; acc=0; }
       ctl.statStep.textContent=String(world.step);
-      requestAnimationFrame(tick);
+      window.requestAnimationFrame(tick);
     }
-    requestAnimationFrame(tick);
+    window.requestAnimationFrame(tick);
   }
 
   // Wiring
@@ -444,7 +465,9 @@
   ['preset','nBodies','seed','mMin','mMax','spawnR','G','dt','eps'].forEach(id=>$(id).addEventListener('change', reset));
   ['speed','radius','trails','trailAlpha','glow','glowStrength','testDot'].forEach(id=>$(id).addEventListener('input', ()=>{}));
 
-  reset(); startLoop();
+  // Boot
+  reset();
+  startLoop();
 })();
 </script>
 </body>
