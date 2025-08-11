@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>N‑Body Playground — v7.6 (3D, True Trails via FBO)</title>
+<title>N‑Body Playground — v7.6.1 (3D, Robust Trails)</title>
 <style>
   :root{ --bg:#0b1020; --text:#e6ebff; --muted:#8ea0d0; --accent:#6aa6ff; }
   *{box-sizing:border-box}
@@ -141,16 +141,58 @@
   fullResize(); window.addEventListener('resize', fullResize);
 
   // Shader helpers
-  function makeProgram(vsSrc,fsSrc){ const vs=gl.createShader(gl.VERTEX_SHADER); gl.shaderSource(vs,vsSrc); gl.compileShader(vs); if(!gl.getShaderParameter(vs, gl.COMPILE_STATUS)){ log('VS error: '+gl.getShaderInfoLog(vs)); throw new Error('VS'); } const fs=gl.createShader(gl.FRAGMENT_SHADER); gl.shaderSource(fs,fsSrc); gl.compileShader(fs); if(!gl.getShaderParameter(fs, gl.COMPILE_STATUS)){ log('FS error: '+gl.getShaderInfoLog(fs)); throw new Error('FS'); } const p=gl.createProgram(); gl.attachShader(p,vs); gl.attachShader(p,fs); gl.linkProgram(p); if(!gl.getProgramParameter(p, gl.LINK_STATUS)){ log('LINK error: '+gl.getProgramInfoLog(p)); throw new Error('LINK'); } return p; }
+  function makeProgram(vsSrc,fsSrc){
+    const vs=gl.createShader(gl.VERTEX_SHADER); gl.shaderSource(vs,vsSrc); gl.compileShader(vs);
+    if(!gl.getShaderParameter(vs, gl.COMPILE_STATUS)){ const info=gl.getShaderInfoLog(vs); log('VS error: '+info); throw new Error(info||'VS'); }
+    const fs=gl.createShader(gl.FRAGMENT_SHADER); gl.shaderSource(fs,fsSrc); gl.compileShader(fs);
+    if(!gl.getShaderParameter(fs, gl.COMPILE_STATUS)){ const info=gl.getShaderInfoLog(fs); log('FS error: '+info); throw new Error(info||'FS'); }
+    const p=gl.createProgram(); gl.attachShader(p,vs); gl.attachShader(p,fs); gl.linkProgram(p);
+    if(!gl.getProgramParameter(p, gl.LINK_STATUS)){ const info=gl.getProgramInfoLog(p); log('LINK error: '+info); throw new Error(info||'LINK'); }
+    return p;
+  }
 
   // Programs
-  const vsPoints = `attribute vec3 a_pos; attribute vec3 a_col; uniform mat4 u_mvp; uniform float u_pointSize; varying vec3 vcol; void main(){ vec4 p=u_mvp*vec4(a_pos,1.0); gl_Position=p; gl_PointSize=u_pointSize; vcol=a_col; }`;
-  const fsPoints = `precision mediump float; varying vec3 vcol; void main(){ vec2 uv=gl_PointCoord*2.0-1.0; float r2=dot(uv,uv); if(r2>1.0) discard; float core=smoothstep(0.22,0.0,r2); float edge=smoothstep(1.0,0.25,r2); vec3 col=mix(vcol*0.8,vcol,core)+vec3(1.0,0.95,0.8)*0.25*core; gl_FragColor=vec4(col, edge); }`;
+  const vsPoints = `
+    attribute vec3 a_pos;
+    attribute vec3 a_col;
+    uniform mat4 u_mvp;
+    uniform float u_pointSize;
+    varying vec3 vcol;
+    void main(){ vec4 p=u_mvp*vec4(a_pos,1.0); gl_Position=p; gl_PointSize=u_pointSize; vcol=a_col; }`;
+  const fsPoints = `
+    precision mediump float;
+    varying vec3 vcol;
+    void main(){
+      vec2 uv=gl_PointCoord*2.0-1.0;
+      float r2=dot(uv,uv);
+      if(r2>1.0) discard;
+      float core=smoothstep(0.22,0.0,r2);
+      float edge=smoothstep(1.0,0.25,r2);
+      vec3 col=mix(vcol*0.8,vcol,core)+vec3(1.0,0.95,0.8)*0.25*core;
+      gl_FragColor=vec4(col, edge);
+    }`;
 
-  const vsQuad = `attribute vec2 a_pos; attribute vec2 a_uv; varying vec2 vuv; void main(){ vuv=a_uv; gl_Position=vec4(a_pos,0.0,1.0); }`;
-  const fsDecay = `precision mediump float; varying vec2 vuv; uniform sampler2D u_prev; uniform vec3 u_bg; uniform float u_decay; void main(){ vec4 prev=texture2D(u_prev, vuv); // decay previous frame toward bg
-    vec3 col = mix(prev.rgb, u_bg, u_decay); float a = 1.0; gl_FragColor=vec4(col, a); }`;
-  const fsBlit = `precision mediump float; varying vec2 vuv; uniform sampler2D u_tex; void main(){ gl_FragColor=texture2D(u_tex, vuv); }`;
+  const vsQuad = `
+    attribute vec2 a_pos;
+    attribute vec2 a_uv;
+    varying vec2 vuv;
+    void main(){ vuv=a_uv; gl_Position=vec4(a_pos,0.0,1.0); }`;
+  const fsDecay = `
+    precision mediump float;
+    varying vec2 vuv;
+    uniform sampler2D u_prev;
+    uniform vec3 u_bg;
+    uniform float u_decay;
+    void main(){
+      vec4 prev=texture2D(u_prev, vuv);
+      vec3 col = mix(prev.rgb, u_bg, u_decay);
+      gl_FragColor=vec4(col, 1.0);
+    }`;
+  const fsBlit = `
+    precision mediump float;
+    varying vec2 vuv;
+    uniform sampler2D u_tex;
+    void main(){ gl_FragColor=texture2D(u_tex, vuv); }`;
 
   const progPoints = makeProgram(vsPoints, fsPoints);
   const locP = { a_pos: gl.getAttribLocation(progPoints,'a_pos'), a_col: gl.getAttribLocation(progPoints,'a_col'), u_mvp: gl.getUniformLocation(progPoints,'u_mvp'), u_pointSize: gl.getUniformLocation(progPoints,'u_pointSize') };
@@ -166,7 +208,6 @@
   const colBuf = gl.createBuffer();
   const quadBuf = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
-  // full-screen triangle strip (two triangles)
   const quad = new Float32Array([
     -1,-1,  0,0,
      1,-1,  1,0,
@@ -261,26 +302,25 @@
   let fboA=null, fboB=null, texA=null, texB=null;
   function createTex(w,h){ const t=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,t); gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,null); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE); return t; }
   function attach(t){ const f=gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER,f); gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,t,0); gl.bindFramebuffer(gl.FRAMEBUFFER,null); return f; }
-  function recreateFBOs(){ const w=canvas.width,h=canvas.height; if(texA) gl.deleteTexture(texA); if(texB) gl.deleteTexture(texB); if(fboA) gl.deleteFramebuffer(fboA); if(fboB) gl.deleteFramebuffer(fboB); texA=createTex(w,h); texB=createTex(w,h); fboA=attach(texA); fboB=attach(texB); // clear both
+  function recreateFBOs(){ const w=canvas.width,h=canvas.height; if(texA) gl.deleteTexture(texA); if(texB) gl.deleteTexture(texB); if(fboA) gl.deleteFramebuffer(fboA); if(fboB) gl.deleteFramebuffer(fboB); texA=createTex(w,h); texB=createTex(w,h); fboA=attach(texA); fboB=attach(texB);
+    // clear both
     gl.bindFramebuffer(gl.FRAMEBUFFER,fboA); gl.clearColor(bg[0],bg[1],bg[2],1); gl.clear(gl.COLOR_BUFFER_BIT);
     gl.bindFramebuffer(gl.FRAMEBUFFER,fboB); gl.clearColor(bg[0],bg[1],bg[2],1); gl.clear(gl.COLOR_BUFFER_BIT);
     gl.bindFramebuffer(gl.FRAMEBUFFER,null);
   }
   recreateFBOs();
 
-  function drawToFBO(targetFBO, sourceTex, decay){
+  function drawDecay(targetFBO, sourceTex, decay){
     gl.bindFramebuffer(gl.FRAMEBUFFER, targetFBO);
-    gl.disableVertexAttribArray(locP.a_pos); gl.disableVertexAttribArray(locP.a_col);
     gl.useProgram(progDecay);
     gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
     gl.enableVertexAttribArray(locD.a_pos); gl.vertexAttribPointer(locD.a_pos, 2, gl.FLOAT, false, 16, 0);
     gl.enableVertexAttribArray(locD.a_uv);  gl.vertexAttribPointer(locD.a_uv,  2, gl.FLOAT, false, 16, 8);
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, sourceTex);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, sourceTex);
     gl.uniform1i(locD.u_prev, 0);
     gl.uniform3f(locD.u_bg, bg[0],bg[1],bg[2]);
     gl.uniform1f(locD.u_decay, decay);
-    gl.blendFunc(gl.ONE, gl.ZERO); // overwrite
+    gl.disable(gl.BLEND); // overwrite
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
 
@@ -290,19 +330,18 @@
     gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
     gl.enableVertexAttribArray(locB.a_pos); gl.vertexAttribPointer(locB.a_pos, 2, gl.FLOAT, false, 16, 0);
     gl.enableVertexAttribArray(locB.a_uv);  gl.vertexAttribPointer(locB.a_uv,  2, gl.FLOAT, false, 16, 8);
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tex);
     gl.uniform1i(locB.u_tex, 0);
-    gl.blendFunc(gl.ONE, gl.ZERO); // overwrite
+    gl.disable(gl.BLEND); // overwrite
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
 
-  function renderPointsToFBO(targetFBO, pointSize){
+  function renderStars(targetFBO, size, additive){
     gl.bindFramebuffer(gl.FRAMEBUFFER, targetFBO);
     const mvp = cameraMVP();
     gl.useProgram(progPoints);
     gl.uniformMatrix4fv(locP.u_mvp,false,new Float32Array(mvp));
-    gl.uniform1f(locP.u_pointSize, pointSize);
+    gl.uniform1f(locP.u_pointSize, size);
 
     gl.bindBuffer(gl.ARRAY_BUFFER, posBuf);
     gl.enableVertexAttribArray(locP.a_pos);
@@ -311,43 +350,42 @@
     gl.enableVertexAttribArray(locP.a_col);
     gl.vertexAttribPointer(locP.a_col, 3, gl.FLOAT, false, 0, 0);
 
+    if(additive){ gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE); }
+    else { gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); }
     gl.drawArrays(gl.POINTS, 0, world.bodies.length);
   }
 
   function render(){
     const mode=ctl.trails.value;
     if(mode==='off'){
-      // no trails: render straight to screen
       gl.bindFramebuffer(gl.FRAMEBUFFER,null);
       gl.clearColor(bg[0],bg[1],bg[2],1); gl.clear(gl.COLOR_BUFFER_BIT);
-      // glow + core
-      if(ctl.glow.checked){ gl.blendFunc(gl.ONE, gl.ONE); renderPointsToFBO(null, (parseFloat(ctl.radius.value)||4)*(2.0+parseFloat(ctl.glowStrength.value||'1.0'))); }
-      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-      renderPointsToFBO(null, (parseFloat(ctl.radius.value)||4));
+      if(ctl.glow.checked){ const gs=(2.0+parseFloat(ctl.glowStrength.value||'1.0')); renderStars(null, (parseFloat(ctl.radius.value)||4)*gs, true); }
+      renderStars(null, (parseFloat(ctl.radius.value)||4), false);
       return;
     }
-    // trails on: ping-pong
-    const decayBase = parseFloat(ctl.trailAlpha.value||'0.02');
-    let decay = decayBase; if(mode==='short') decay = Math.max(decayBase,0.10); else if(mode==='long') decay = Math.min(Math.max(decayBase,0.04),0.08); else if(mode==='ultra') decay = Math.min(decayBase,0.03);
+    let decay = parseFloat(ctl.trailAlpha.value||'0.02');
+    if(mode==='short') decay = Math.max(decay,0.10);
+    else if(mode==='long') decay = Math.min(Math.max(decay,0.04),0.08);
+    else if(mode==='ultra') decay = Math.min(decay,0.03);
 
-    // step 1: decay previous into A from B
-    drawToFBO(fboA, texB, decay);
-    // step 2: draw points into A
-    if(ctl.glow.checked){ gl.blendFunc(gl.ONE, gl.ONE); renderPointsToFBO(fboA, (parseFloat(ctl.radius.value)||4)*(2.0+parseFloat(ctl.glowStrength.value||'1.0'))); }
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-    renderPointsToFBO(fboA, (parseFloat(ctl.radius.value)||4));
-    // optional test dot into A
+    // 1) decay previous into A from B
+    drawDecay(fboA, texB, decay);
+    // 2) draw stars into A
+    if(ctl.glow.checked){ const gs=(2.0+parseFloat(ctl.glowStrength.value||'1.0')); renderStars(fboA, (parseFloat(ctl.radius.value)||4)*gs, true); }
+    renderStars(fboA, (parseFloat(ctl.radius.value)||4), false);
+    // optional test dot
     if(ctl.testDot.checked){
       const pos1=new Float32Array([0,0,0]); const col1=new Float32Array([1,1,1]);
-      gl.bindBuffer(gl.ARRAY_BUFFER, posBuf); gl.bufferData(gl.ARRAY_BUFFER, pos1, gl.DYNAMIC_DRAW); gl.vertexAttribPointer(locP.a_pos,3,gl.FLOAT,false,0,0);
-      gl.bindBuffer(gl.ARRAY_BUFFER, colBuf); gl.bufferData(gl.ARRAY_BUFFER, col1, gl.DYNAMIC_DRAW); gl.vertexAttribPointer(locP.a_col,3,gl.FLOAT,false,0,0);
-      renderPointsToFBO(fboA, 28.0);
+      gl.bindBuffer(gl.ARRAY_BUFFER, posBuf); gl.bufferData(gl.ARRAY_BUFFER, pos1, gl.DYNAMIC_DRAW);
+      gl.bindBuffer(gl.ARRAY_BUFFER, colBuf); gl.bufferData(gl.ARRAY_BUFFER, col1, gl.DYNAMIC_DRAW);
+      renderStars(fboA, 28.0, false);
       uploadBuffers();
     }
-    // step 3: blit A to screen
+    // 3) blit A to screen
     blitToScreen(texA);
-    // step 4: swap A/B
-    const tt=texA; texA=texB; texB=tt; const ff=fboA; fboA=fboB; fboB=ff;
+    // 4) swap A/B
+    let t=texA; texA=texB; texB=t; let f=fboA; fboA=fboB; fboB=f;
   }
 
   // Camera
@@ -355,7 +393,13 @@
     const state={down:false, right:false, lastX:0,lastY:0};
     canvas.addEventListener('mousedown',e=>{ state.down=true; state.right=(e.button===2); state.lastX=e.clientX; state.lastY=e.clientY; e.preventDefault(); });
     window.addEventListener('mouseup',()=>{ state.down=false; });
-    window.addEventListener('mousemove',e=>{ if(!state.down) return; const dx=e.clientX-state.lastX, dy=e.clientY-state.lastY; state.lastX=e.clientX; state.lastY=e.clientY; if(state.right||e.shiftKey){ world.cam.panX -= dx*0.001*world.cam.distance; world.cam.panY += dy*0.001*world.cam.distance; } else { world.cam.azimuth += dx*0.005; world.cam.elevation = Math.max(-Math.PI/2+0.01, Math.min(Math.PI/2-0.01, world.cam.elevation+dy*0.005)); } ctl.camTxt.textContent = `${(world.cam.azimuth*180/Math.PI)|0}° / ${(world.cam.elevation*180/Math.PI)|0}° / ${world.cam.distance.toFixed(2)}`; });
+    window.addEventListener('mousemove',e=>{
+      if(!state.down) return;
+      const dx=e.clientX-state.lastX, dy=e.clientY-state.lastY; state.lastX=e.clientX; state.lastY=e.clientY;
+      if(state.right || e.shiftKey){ world.cam.panX -= dx*0.001*world.cam.distance; world.cam.panY += dy*0.001*world.cam.distance; }
+      else { world.cam.azimuth += dx*0.005; world.cam.elevation = Math.max(-Math.PI/2+0.01, Math.min(Math.PI/2-0.01, world.cam.elevation+dy*0.005)); }
+      ctl.camTxt.textContent = `${(world.cam.azimuth*180/Math.PI)|0}° / ${(world.cam.elevation*180/Math.PI)|0}° / ${world.cam.distance.toFixed(2)}`;
+    });
     canvas.addEventListener('wheel',e=>{ e.preventDefault(); world.cam.distance = Math.max(0.5, Math.min(50, world.cam.distance * Math.exp(e.deltaY*0.001))); ctl.camTxt.textContent = `${(world.cam.azimuth*180/Math.PI)|0}° / ${(world.cam.elevation*180/Math.PI)|0}° / ${world.cam.distance.toFixed(2)}`; }, {passive:false});
     canvas.addEventListener('dblclick',()=>{ world.cam={ azimuth:0.4, elevation:0.35, distance:4.2, panX:0, panY:0 }; ctl.camTxt.textContent = `${(world.cam.azimuth*180/Math.PI)|0}° / ${(world.cam.elevation*180/Math.PI)|0}° / ${world.cam.distance.toFixed(2)}`; });
     canvas.addEventListener('contextmenu',e=>e.preventDefault());
@@ -366,10 +410,32 @@
   function computeEnergy(){ const G=parseFloat(ctl.G.value)||1, eps2=Math.pow(parseFloat(ctl.eps.value)||0.02,2); let K=0,U=0; const b=world.bodies; for(const p of b){ K += 0.5*p.m*(p.vx*p.vx+p.vy*p.vy+p.vz*p.vz); } for(let i=0;i<b.length;i++){ for(let j=i+1;j<b.length;j++){ const dx=b[j].x-b[i].x, dy=b[j].y-b[i].y, dz=b[j].z-b[i].z; const r=Math.sqrt(dx*dx+dy*dy+dz*dz+eps2); U += -G*b[i].m*b[j].m/r; } } ctl.statE.textContent=(K+U).toFixed(3); }
 
   // Reset and loop
-  function reset(){ world.preset = ctl.preset.value; const n=parseInt(ctl.nBodies.value,10)||1200; const mMin=parseFloat(ctl.mMin.value)||0.3, mMax=parseFloat(ctl.mMax.value)||2.5, radius=parseFloat(ctl.spawnR.value)||0.9; world.bodies = createBodies(n,{mMin,mMax,radius,preset:world.preset}); computeAccelerations(world.bodies, parseFloat(ctl.G.value)||1, Math.pow(parseFloat(ctl.eps.value)||0.02,2)); world.step=0; uploadBuffers(); overlay.textContent='Running… (Space to pause)'; log(`Reset — preset=${world.preset} bodies=${world.bodies.length}`); }
+  function reset(){
+    world.preset = ctl.preset.value;
+    const n=parseInt(ctl.nBodies.value,10)||1200;
+    const mMin=parseFloat(ctl.mMin.value)||0.3, mMax=parseFloat(ctl.mMax.value)||2.5, radius=parseFloat(ctl.spawnR.value)||0.9;
+    world.bodies = createBodies(n,{mMin,mMax,radius,preset:world.preset});
+    computeAccelerations(world.bodies, parseFloat(ctl.G.value)||1, Math.pow(parseFloat(ctl.eps.value)||0.02,2));
+    world.step=0;
+    uploadBuffers();
+    overlay.textContent='Running… (Space to pause)';
+    log(`Reset — preset=${world.preset} bodies=${world.bodies.length}`);
+  }
 
-  function startLoop(){ let last=performance.now(), acc=0, frames=0; function tick(t){ const dt=t-last; last=t; if(!world.paused){ stepSystem(); if(world.step%4===0){ computeEnergy(); uploadBuffers(); } } render(); frames++; acc+=dt; if(acc>=500){ ctl.statFPS.textContent = String(Math.round(frames/(acc/1000))); frames=0; acc=0; } ctl.statStep.textContent=String(world.step); requestAnimationFrame(tick);} requestAnimationFrame(tick); }
+  function startLoop(){
+    let last=performance.now(), acc=0, frames=0;
+    function tick(t){
+      const dt=t-last; last=t;
+      if(!world.paused){ stepSystem(); if(world.step%4===0){ computeEnergy(); uploadBuffers(); } }
+      render();
+      frames++; acc+=dt; if(acc>=500){ ctl.statFPS.textContent = String(Math.round(frames/(acc/1000))); frames=0; acc=0; }
+      ctl.statStep.textContent=String(world.step);
+      requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  }
 
+  // Wiring
   ctl.btnStart.addEventListener('click',()=>{ world.paused=false; overlay.textContent='Running… (Space to pause)'; });
   ctl.btnPause.addEventListener('click',()=>{ world.paused=!world.paused; overlay.textContent = world.paused?'Paused (Space to resume)':'Running… (Space to pause)'; ctl.btnPause.textContent = world.paused?'⏵ Resume':'⏸ Pause'; });
   ctl.btnReset.addEventListener('click',reset);
