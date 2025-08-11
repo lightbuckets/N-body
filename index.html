@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>N‑Body Playground — v7.5.1 (3D, Stronger Trails)</title>
+<title>N‑Body Playground — v7.6 (3D, True Trails via FBO)</title>
 <style>
   :root{ --bg:#0b1020; --text:#e6ebff; --muted:#8ea0d0; --accent:#6aa6ff; }
   *{box-sizing:border-box}
@@ -45,7 +45,7 @@
 
     <h2>Counts & Mass</h2>
     <div class="row">
-      <label class="row"><span>N</span><input id="nBodies" type="number" min="100" max="4000" step="50" value="1000"></label>
+      <label class="row"><span>N</span><input id="nBodies" type="number" min="100" max="4000" step="50" value="1200"></label>
       <label class="row"><span>Seed</span><input id="seed" type="number" min="0" max="999999" step="1" value="42"></label>
     </div>
     <div class="row">
@@ -66,15 +66,15 @@
 
     <h2>Rendering</h2>
     <div class="row">
-      <label class="row"><span>Point size</span><input id="radius" type="range" min="1" max="8" step="0.5" value="4"></label>
+      <label class="row"><span>Point size</span><input id="radius" type="range" min="1" max="8" step="0.5" value="4.5"></label>
       <label class="row"><span>Trails</span>
-        <select id="trails"><option value="off">Off</option><option value="short">Short</option><option value="long">Long</option><option value="ultra" selected>Ultra</option></select>
+        <select id="trails"><option value="off">Off</option><option value="short" selected>Short</option><option value="long">Long</option><option value="ultra">Ultra</option></select>
       </label>
     </div>
     <label class="row"><span>Trail persistence</span><input id="trailAlpha" type="range" min="0.005" max="0.2" step="0.005" value="0.02"></label>
     <div class="row">
       <label class="row"><span>Glow</span><input id="glow" type="checkbox" checked></label>
-      <label class="row"><span>Glow strength</span><input id="glowStrength" type="range" min="0" max="2" step="0.05" value="1.2"></label>
+      <label class="row"><span>Glow strength</span><input id="glowStrength" type="range" min="0" max="2" step="0.05" value="1.0"></label>
     </div>
     <label class="row"><span>Show test dot</span><input id="testDot" type="checkbox"></label>
 
@@ -136,30 +136,51 @@
   if(!gl){ log('WebGL not available — try Chrome/Firefox on desktop.'); return; }
   log('WebGL OK: '+gl.getParameter(gl.VERSION));
 
-  function resize(){ const dpr=Math.max(1,window.devicePixelRatio||1); const rect=canvas.getBoundingClientRect(); const w=Math.max(2,Math.floor(rect.width*dpr)); const h=Math.max(2,Math.floor(rect.height*dpr)); if(canvas.width!==w||canvas.height!==h){ canvas.width=w; canvas.height=h; gl.viewport(0,0,w,h);} }
+  function resize(){ const dpr=Math.max(1,window.devicePixelRatio||1); const rect=canvas.getBoundingClientRect(); const w=Math.max(2,Math.floor(rect.width*dpr)); const h=Math.max(2,Math.floor(rect.height*dpr)); if(canvas.width!==w||canvas.height!==h){ canvas.width=w; canvas.height=h; gl.viewport(0,0,w,h); recreateFBOs(); } }
   function fullResize(){ main.style.transform='translateZ(0)'; void main.offsetHeight; main.style.transform=''; resize(); }
   fullResize(); window.addEventListener('resize', fullResize);
 
+  // Shader helpers
   function makeProgram(vsSrc,fsSrc){ const vs=gl.createShader(gl.VERTEX_SHADER); gl.shaderSource(vs,vsSrc); gl.compileShader(vs); if(!gl.getShaderParameter(vs, gl.COMPILE_STATUS)){ log('VS error: '+gl.getShaderInfoLog(vs)); throw new Error('VS'); } const fs=gl.createShader(gl.FRAGMENT_SHADER); gl.shaderSource(fs,fsSrc); gl.compileShader(fs); if(!gl.getShaderParameter(fs, gl.COMPILE_STATUS)){ log('FS error: '+gl.getShaderInfoLog(fs)); throw new Error('FS'); } const p=gl.createProgram(); gl.attachShader(p,vs); gl.attachShader(p,fs); gl.linkProgram(p); if(!gl.getProgramParameter(p, gl.LINK_STATUS)){ log('LINK error: '+gl.getProgramInfoLog(p)); throw new Error('LINK'); } return p; }
 
+  // Programs
   const vsPoints = `attribute vec3 a_pos; attribute vec3 a_col; uniform mat4 u_mvp; uniform float u_pointSize; varying vec3 vcol; void main(){ vec4 p=u_mvp*vec4(a_pos,1.0); gl_Position=p; gl_PointSize=u_pointSize; vcol=a_col; }`;
   const fsPoints = `precision mediump float; varying vec3 vcol; void main(){ vec2 uv=gl_PointCoord*2.0-1.0; float r2=dot(uv,uv); if(r2>1.0) discard; float core=smoothstep(0.22,0.0,r2); float edge=smoothstep(1.0,0.25,r2); vec3 col=mix(vcol*0.8,vcol,core)+vec3(1.0,0.95,0.8)*0.25*core; gl_FragColor=vec4(col, edge); }`;
 
-  const vsFade = `attribute vec2 a_pos; void main(){ gl_Position=vec4(a_pos,0.0,1.0);} `;
-  const fsFade = `precision mediump float; uniform vec4 u_fadeColor; void main(){ gl_FragColor=u_fadeColor; }`;
+  const vsQuad = `attribute vec2 a_pos; attribute vec2 a_uv; varying vec2 vuv; void main(){ vuv=a_uv; gl_Position=vec4(a_pos,0.0,1.0); }`;
+  const fsDecay = `precision mediump float; varying vec2 vuv; uniform sampler2D u_prev; uniform vec3 u_bg; uniform float u_decay; void main(){ vec4 prev=texture2D(u_prev, vuv); // decay previous frame toward bg
+    vec3 col = mix(prev.rgb, u_bg, u_decay); float a = 1.0; gl_FragColor=vec4(col, a); }`;
+  const fsBlit = `precision mediump float; varying vec2 vuv; uniform sampler2D u_tex; void main(){ gl_FragColor=texture2D(u_tex, vuv); }`;
 
   const progPoints = makeProgram(vsPoints, fsPoints);
   const locP = { a_pos: gl.getAttribLocation(progPoints,'a_pos'), a_col: gl.getAttribLocation(progPoints,'a_col'), u_mvp: gl.getUniformLocation(progPoints,'u_mvp'), u_pointSize: gl.getUniformLocation(progPoints,'u_pointSize') };
-  const progFade = makeProgram(vsFade, fsFade);
-  const locF = { a_pos: gl.getAttribLocation(progFade,'a_pos'), u_fadeColor: gl.getUniformLocation(progFade,'u_fadeColor') };
 
-  const posBuf = gl.createBuffer(); const colBuf = gl.createBuffer(); const fadeBuf = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, fadeBuf); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([ -1,-1, 3,-1, -1,3 ]), gl.STATIC_DRAW);
+  const progDecay = makeProgram(vsQuad, fsDecay);
+  const locD = { a_pos: gl.getAttribLocation(progDecay,'a_pos'), a_uv: gl.getAttribLocation(progDecay,'a_uv'), u_prev: gl.getUniformLocation(progDecay,'u_prev'), u_bg: gl.getUniformLocation(progDecay,'u_bg'), u_decay: gl.getUniformLocation(progDecay,'u_decay') };
+
+  const progBlit = makeProgram(vsQuad, fsBlit);
+  const locB = { a_pos: gl.getAttribLocation(progBlit,'a_pos'), a_uv: gl.getAttribLocation(progBlit,'a_uv'), u_tex: gl.getUniformLocation(progBlit,'u_tex') };
+
+  // Buffers
+  const posBuf = gl.createBuffer();
+  const colBuf = gl.createBuffer();
+  const quadBuf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
+  // full-screen triangle strip (two triangles)
+  const quad = new Float32Array([
+    -1,-1,  0,0,
+     1,-1,  1,0,
+    -1, 1,  0,1,
+     1, 1,  1,1
+  ]);
+  gl.bufferData(gl.ARRAY_BUFFER, quad, gl.STATIC_DRAW);
 
   gl.enable(gl.BLEND);
   gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
   gl.clearColor(0.03,0.05,0.12,1);
+  const bg = [0.03,0.05,0.12];
 
+  // Mat4
   function mat4_identity(){ return [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]; }
   function mat4_mul(a,b){ const o=new Array(16); for(let i=0;i<4;i++) for(let j=0;j<4;j++){ o[i*4+j]=a[i*4+0]*b[0*4+j]+a[i*4+1]*b[1*4+j]+a[i*4+2]*b[2*4+j]+a[i*4+3]*b[3*4+j]; } return o; }
   function mat4_perspective(fovy,aspect,near,far){ const f=1/Math.tan(fovy/2), nf=1/(near-far); return [f/aspect,0,0,0, 0,f,0,0, 0,0,(far+near)*nf,-1, 0,0,(2*far*near)*nf,0]; }
@@ -168,10 +189,12 @@
   function mat4_rotateX(m,a){ const c=Math.cos(a), s=Math.sin(a); const r=[1,0,0,0, 0,c,-s,0, 0,s,c,0, 0,0,0,1]; return mat4_mul(m,r); }
   function cameraMVP(){ fullResize(); const w=canvas.width,h=canvas.height,aspect=w/Math.max(1,h); let P=mat4_perspective(50*Math.PI/180,aspect,0.05,200.0); let V=mat4_identity(); V=mat4_rotateX(V,world.cam.elevation); V=mat4_rotateY(V,world.cam.azimuth); V=mat4_translate(V,-world.cam.panX,-world.cam.panY,-world.cam.distance); return mat4_mul(P,V); }
 
+  // RNG & palette
   function seeded(seed){ let a=(seed>>>0)||1; return ()=>{ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,a|1); t^=t+Math.imul(t^t>>>7,t|61); return ((t^t>>>14)>>>0)/4294967296; }; }
   const palette=[[0.64,0.72,1],[0.62,0.89,1],[1,0.83,0.5],[1,0.62,0.7],[0.84,1,0.62],[0.78,0.66,1],[0.62,1,0.85]];
   const pick=i=>palette[i%palette.length];
 
+  // Presets
   function createBodies(n,opts){
     const out=[]; const {mMin=0.5,mMax=3, radius=0.9, preset='random'}=opts||{}; const R=radius;
     const rnd=seeded(parseInt(ctl.seed.value,10)||42);
@@ -195,6 +218,7 @@
     return out;
   }
 
+  // Physics
   function computeAccelerations(bodies,G,eps2){
     const n=bodies.length;
     for(let i=0;i<n;i++){ const b=bodies[i]; b.ax=b.ay=b.az=0; }
@@ -224,6 +248,7 @@
     world.step++;
   }
 
+  // GPU upload
   const pos = new Float32Array(3*4000); const col = new Float32Array(3*4000);
   function uploadBuffers(){
     const n=world.bodies.length;
@@ -232,25 +257,50 @@
     gl.bindBuffer(gl.ARRAY_BUFFER, colBuf); gl.bufferData(gl.ARRAY_BUFFER, col.subarray(0, n*3), gl.DYNAMIC_DRAW);
   }
 
-  function drawFade(){
-    const mode=ctl.trails.value;
-    if(mode==='off'){ gl.clear(gl.COLOR_BUFFER_BIT); return; }
-    let a=parseFloat(ctl.trailAlpha.value||'0.02'); // smaller a -> longer trails
-    if(mode==='short') a=Math.max(a,0.10);
-    else if(mode==='long') a=Math.min(Math.max(a,0.04),0.08);
-    else if(mode==='ultra') a=Math.min(a,0.03);
-    gl.useProgram(progFade);
-    gl.bindBuffer(gl.ARRAY_BUFFER, fadeBuf);
-    gl.enableVertexAttribArray(locF.a_pos);
-    gl.vertexAttribPointer(locF.a_pos, 2, gl.FLOAT, false, 0, 0);
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-    gl.uniform4f(locF.u_fadeColor, 0.03,0.05,0.12, a);
-    gl.drawArrays(gl.TRIANGLES, 0, 3);
+  // FBO setup for trails (ping‑pong)
+  let fboA=null, fboB=null, texA=null, texB=null;
+  function createTex(w,h){ const t=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,t); gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,null); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE); return t; }
+  function attach(t){ const f=gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER,f); gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,t,0); gl.bindFramebuffer(gl.FRAMEBUFFER,null); return f; }
+  function recreateFBOs(){ const w=canvas.width,h=canvas.height; if(texA) gl.deleteTexture(texA); if(texB) gl.deleteTexture(texB); if(fboA) gl.deleteFramebuffer(fboA); if(fboB) gl.deleteFramebuffer(fboB); texA=createTex(w,h); texB=createTex(w,h); fboA=attach(texA); fboB=attach(texB); // clear both
+    gl.bindFramebuffer(gl.FRAMEBUFFER,fboA); gl.clearColor(bg[0],bg[1],bg[2],1); gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.bindFramebuffer(gl.FRAMEBUFFER,fboB); gl.clearColor(bg[0],bg[1],bg[2],1); gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+  }
+  recreateFBOs();
+
+  function drawToFBO(targetFBO, sourceTex, decay){
+    gl.bindFramebuffer(gl.FRAMEBUFFER, targetFBO);
+    gl.disableVertexAttribArray(locP.a_pos); gl.disableVertexAttribArray(locP.a_col);
+    gl.useProgram(progDecay);
+    gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
+    gl.enableVertexAttribArray(locD.a_pos); gl.vertexAttribPointer(locD.a_pos, 2, gl.FLOAT, false, 16, 0);
+    gl.enableVertexAttribArray(locD.a_uv);  gl.vertexAttribPointer(locD.a_uv,  2, gl.FLOAT, false, 16, 8);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, sourceTex);
+    gl.uniform1i(locD.u_prev, 0);
+    gl.uniform3f(locD.u_bg, bg[0],bg[1],bg[2]);
+    gl.uniform1f(locD.u_decay, decay);
+    gl.blendFunc(gl.ONE, gl.ZERO); // overwrite
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
 
-  function renderPoints(pointSize){
-    gl.useProgram(progPoints);
+  function blitToScreen(tex){
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.useProgram(progBlit);
+    gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
+    gl.enableVertexAttribArray(locB.a_pos); gl.vertexAttribPointer(locB.a_pos, 2, gl.FLOAT, false, 16, 0);
+    gl.enableVertexAttribArray(locB.a_uv);  gl.vertexAttribPointer(locB.a_uv,  2, gl.FLOAT, false, 16, 8);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.uniform1i(locB.u_tex, 0);
+    gl.blendFunc(gl.ONE, gl.ZERO); // overwrite
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  }
+
+  function renderPointsToFBO(targetFBO, pointSize){
+    gl.bindFramebuffer(gl.FRAMEBUFFER, targetFBO);
     const mvp = cameraMVP();
+    gl.useProgram(progPoints);
     gl.uniformMatrix4fv(locP.u_mvp,false,new Float32Array(mvp));
     gl.uniform1f(locP.u_pointSize, pointSize);
 
@@ -265,13 +315,42 @@
   }
 
   function render(){
-    drawFade();
-    if(ctl.glow.checked){ gl.blendFunc(gl.ONE, gl.ONE); const glowScale = 2.0 + parseFloat(ctl.glowStrength.value||'1.2'); renderPoints((parseFloat(ctl.radius.value)||4)*glowScale); }
+    const mode=ctl.trails.value;
+    if(mode==='off'){
+      // no trails: render straight to screen
+      gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+      gl.clearColor(bg[0],bg[1],bg[2],1); gl.clear(gl.COLOR_BUFFER_BIT);
+      // glow + core
+      if(ctl.glow.checked){ gl.blendFunc(gl.ONE, gl.ONE); renderPointsToFBO(null, (parseFloat(ctl.radius.value)||4)*(2.0+parseFloat(ctl.glowStrength.value||'1.0'))); }
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      renderPointsToFBO(null, (parseFloat(ctl.radius.value)||4));
+      return;
+    }
+    // trails on: ping-pong
+    const decayBase = parseFloat(ctl.trailAlpha.value||'0.02');
+    let decay = decayBase; if(mode==='short') decay = Math.max(decayBase,0.10); else if(mode==='long') decay = Math.min(Math.max(decayBase,0.04),0.08); else if(mode==='ultra') decay = Math.min(decayBase,0.03);
+
+    // step 1: decay previous into A from B
+    drawToFBO(fboA, texB, decay);
+    // step 2: draw points into A
+    if(ctl.glow.checked){ gl.blendFunc(gl.ONE, gl.ONE); renderPointsToFBO(fboA, (parseFloat(ctl.radius.value)||4)*(2.0+parseFloat(ctl.glowStrength.value||'1.0'))); }
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-    renderPoints((parseFloat(ctl.radius.value)||4));
-    if(ctl.testDot.checked){ const pos1=new Float32Array([0,0,0]); const col1=new Float32Array([1,1,1]); gl.bindBuffer(gl.ARRAY_BUFFER,posBuf); gl.bufferData(gl.ARRAY_BUFFER,pos1,gl.DYNAMIC_DRAW); gl.vertexAttribPointer(locP.a_pos,3,gl.FLOAT,false,0,0); gl.bindBuffer(gl.ARRAY_BUFFER,colBuf); gl.bufferData(gl.ARRAY_BUFFER,col1,gl.DYNAMIC_DRAW); gl.vertexAttribPointer(locP.a_col,3,gl.FLOAT,false,0,0); renderPoints(28.0); uploadBuffers(); }
+    renderPointsToFBO(fboA, (parseFloat(ctl.radius.value)||4));
+    // optional test dot into A
+    if(ctl.testDot.checked){
+      const pos1=new Float32Array([0,0,0]); const col1=new Float32Array([1,1,1]);
+      gl.bindBuffer(gl.ARRAY_BUFFER, posBuf); gl.bufferData(gl.ARRAY_BUFFER, pos1, gl.DYNAMIC_DRAW); gl.vertexAttribPointer(locP.a_pos,3,gl.FLOAT,false,0,0);
+      gl.bindBuffer(gl.ARRAY_BUFFER, colBuf); gl.bufferData(gl.ARRAY_BUFFER, col1, gl.DYNAMIC_DRAW); gl.vertexAttribPointer(locP.a_col,3,gl.FLOAT,false,0,0);
+      renderPointsToFBO(fboA, 28.0);
+      uploadBuffers();
+    }
+    // step 3: blit A to screen
+    blitToScreen(texA);
+    // step 4: swap A/B
+    const tt=texA; texA=texB; texB=tt; const ff=fboA; fboA=fboB; fboB=ff;
   }
 
+  // Camera
   (function cameraControls(){
     const state={down:false, right:false, lastX:0,lastY:0};
     canvas.addEventListener('mousedown',e=>{ state.down=true; state.right=(e.button===2); state.lastX=e.clientX; state.lastY=e.clientY; e.preventDefault(); });
@@ -283,9 +362,11 @@
     ctl.camTxt.textContent = `${(world.cam.azimuth*180/Math.PI)|0}° / ${(world.cam.elevation*180/Math.PI)|0}° / ${world.cam.distance.toFixed(2)}`;
   })();
 
+  // Stats
   function computeEnergy(){ const G=parseFloat(ctl.G.value)||1, eps2=Math.pow(parseFloat(ctl.eps.value)||0.02,2); let K=0,U=0; const b=world.bodies; for(const p of b){ K += 0.5*p.m*(p.vx*p.vx+p.vy*p.vy+p.vz*p.vz); } for(let i=0;i<b.length;i++){ for(let j=i+1;j<b.length;j++){ const dx=b[j].x-b[i].x, dy=b[j].y-b[i].y, dz=b[j].z-b[i].z; const r=Math.sqrt(dx*dx+dy*dy+dz*dz+eps2); U += -G*b[i].m*b[j].m/r; } } ctl.statE.textContent=(K+U).toFixed(3); }
 
-  function reset(){ world.preset = ctl.preset.value; const n=parseInt(ctl.nBodies.value,10)||1000; const mMin=parseFloat(ctl.mMin.value)||0.3, mMax=parseFloat(ctl.mMax.value)||2.5, radius=parseFloat(ctl.spawnR.value)||0.9; world.bodies = createBodies(n,{mMin,mMax,radius,preset:world.preset}); computeAccelerations(world.bodies, parseFloat(ctl.G.value)||1, Math.pow(parseFloat(ctl.eps.value)||0.02,2)); world.step=0; uploadBuffers(); overlay.textContent='Running… (Space to pause)'; log(`Reset — preset=${world.preset} bodies=${world.bodies.length}`); }
+  // Reset and loop
+  function reset(){ world.preset = ctl.preset.value; const n=parseInt(ctl.nBodies.value,10)||1200; const mMin=parseFloat(ctl.mMin.value)||0.3, mMax=parseFloat(ctl.mMax.value)||2.5, radius=parseFloat(ctl.spawnR.value)||0.9; world.bodies = createBodies(n,{mMin,mMax,radius,preset:world.preset}); computeAccelerations(world.bodies, parseFloat(ctl.G.value)||1, Math.pow(parseFloat(ctl.eps.value)||0.02,2)); world.step=0; uploadBuffers(); overlay.textContent='Running… (Space to pause)'; log(`Reset — preset=${world.preset} bodies=${world.bodies.length}`); }
 
   function startLoop(){ let last=performance.now(), acc=0, frames=0; function tick(t){ const dt=t-last; last=t; if(!world.paused){ stepSystem(); if(world.step%4===0){ computeEnergy(); uploadBuffers(); } } render(); frames++; acc+=dt; if(acc>=500){ ctl.statFPS.textContent = String(Math.round(frames/(acc/1000))); frames=0; acc=0; } ctl.statStep.textContent=String(world.step); requestAnimationFrame(tick);} requestAnimationFrame(tick); }
 
