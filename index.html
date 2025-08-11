@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>N‑Body Playground — v7.5 (3D, Trails+Glow)</title>
+<title>N‑Body Playground — v7.5.1 (3D, Stronger Trails)</title>
 <style>
   :root{ --bg:#0b1020; --text:#e6ebff; --muted:#8ea0d0; --accent:#6aa6ff; }
   *{box-sizing:border-box}
@@ -68,12 +68,13 @@
     <div class="row">
       <label class="row"><span>Point size</span><input id="radius" type="range" min="1" max="8" step="0.5" value="4"></label>
       <label class="row"><span>Trails</span>
-        <select id="trails"><option value="off">Off</option><option value="short" selected>Short</option><option value="long">Long</option><option value="ultra">Ultra</option></select>
+        <select id="trails"><option value="off">Off</option><option value="short">Short</option><option value="long">Long</option><option value="ultra" selected>Ultra</option></select>
       </label>
     </div>
+    <label class="row"><span>Trail persistence</span><input id="trailAlpha" type="range" min="0.005" max="0.2" step="0.005" value="0.02"></label>
     <div class="row">
       <label class="row"><span>Glow</span><input id="glow" type="checkbox" checked></label>
-      <label class="row"><span>Glow strength</span><input id="glowStrength" type="range" min="0" max="2" step="0.05" value="0.8"></label>
+      <label class="row"><span>Glow strength</span><input id="glowStrength" type="range" min="0" max="2" step="0.05" value="1.2"></label>
     </div>
     <label class="row"><span>Show test dot</span><input id="testDot" type="checkbox"></label>
 
@@ -119,7 +120,7 @@
     preset:$('preset'),
     nBodies:$('nBodies'), seed:$('seed'), mMin:$('mMin'), mMax:$('mMax'), spawnR:$('spawnR'),
     G:$('G'), dt:$('dt'), eps:$('eps'), speed:$('speed'),
-    radius:$('radius'), trails:$('trails'),
+    radius:$('radius'), trails:$('trails'), trailAlpha:$('trailAlpha'),
     glow:$('glow'), glowStrength:$('glowStrength'),
     testDot:$('testDot'),
     btnStart:$('btnStart'), btnPause:$('btnPause'), btnReset:$('btnReset'),
@@ -127,93 +128,38 @@
     camTxt:$('camTxt')
   };
 
-  // World state
-  const world={
-    preset:'random',
-    bodies:[], // {x,y,z,vx,vy,vz,ax,ay,az,m,color}
-    step:0, paused:false,
-    cam:{ azimuth:0.4, elevation:0.35, distance:4.2, panX:0, panY:0 }
-  };
+  const world={ preset:'random', bodies:[], step:0, paused:false, cam:{ azimuth:0.4, elevation:0.35, distance:4.2, panX:0, panY:0 } };
 
-  // WebGL init
   const canvas=$('canvas'), main=$('main');
   let gl = canvas.getContext('webgl', {antialias:true, alpha:false, preserveDrawingBuffer:false});
   if(!gl){ gl = canvas.getContext('experimental-webgl'); }
   if(!gl){ log('WebGL not available — try Chrome/Firefox on desktop.'); return; }
   log('WebGL OK: '+gl.getParameter(gl.VERSION));
 
-  function resize(){
-    const dpr = Math.max(1, window.devicePixelRatio||1);
-    const rect = canvas.getBoundingClientRect();
-    const w = Math.max(2, Math.floor(rect.width*dpr));
-    const h = Math.max(2, Math.floor(rect.height*dpr));
-    if(canvas.width!==w || canvas.height!==h){ canvas.width=w; canvas.height=h; gl.viewport(0,0,w,h); }
-  }
+  function resize(){ const dpr=Math.max(1,window.devicePixelRatio||1); const rect=canvas.getBoundingClientRect(); const w=Math.max(2,Math.floor(rect.width*dpr)); const h=Math.max(2,Math.floor(rect.height*dpr)); if(canvas.width!==w||canvas.height!==h){ canvas.width=w; canvas.height=h; gl.viewport(0,0,w,h);} }
   function fullResize(){ main.style.transform='translateZ(0)'; void main.offsetHeight; main.style.transform=''; resize(); }
   fullResize(); window.addEventListener('resize', fullResize);
 
-  // Shader helpers
-  function makeProgram(vsSrc,fsSrc){
-    const vs=gl.createShader(gl.VERTEX_SHADER); gl.shaderSource(vs,vsSrc); gl.compileShader(vs);
-    if(!gl.getShaderParameter(vs, gl.COMPILE_STATUS)){ log('VS error: '+gl.getShaderInfoLog(vs)); throw new Error('VS'); }
-    const fs=gl.createShader(gl.FRAGMENT_SHADER); gl.shaderSource(fs,fsSrc); gl.compileShader(fs);
-    if(!gl.getShaderParameter(fs, gl.COMPLETE_STATUS) && !gl.getShaderParameter(fs, gl.COMPILE_STATUS)){ log('FS error: '+gl.getShaderInfoLog(fs)); throw new Error('FS'); }
-    const p=gl.createProgram(); gl.attachShader(p,vs); gl.attachShader(p,fs); gl.linkProgram(p);
-    if(!gl.getProgramParameter(p, gl.LINK_STATUS)){ log('LINK error: '+gl.getProgramInfoLog(p)); throw new Error('LINK'); }
-    return p;
-  }
+  function makeProgram(vsSrc,fsSrc){ const vs=gl.createShader(gl.VERTEX_SHADER); gl.shaderSource(vs,vsSrc); gl.compileShader(vs); if(!gl.getShaderParameter(vs, gl.COMPILE_STATUS)){ log('VS error: '+gl.getShaderInfoLog(vs)); throw new Error('VS'); } const fs=gl.createShader(gl.FRAGMENT_SHADER); gl.shaderSource(fs,fsSrc); gl.compileShader(fs); if(!gl.getShaderParameter(fs, gl.COMPILE_STATUS)){ log('FS error: '+gl.getShaderInfoLog(fs)); throw new Error('FS'); } const p=gl.createProgram(); gl.attachShader(p,vs); gl.attachShader(p,fs); gl.linkProgram(p); if(!gl.getProgramParameter(p, gl.LINK_STATUS)){ log('LINK error: '+gl.getProgramInfoLog(p)); throw new Error('LINK'); } return p; }
 
-  // Programs
-  const vsPoints = `
-  attribute vec3 a_pos;
-  attribute vec3 a_col;
-  uniform mat4 u_mvp;
-  uniform float u_pointSize;
-  varying vec3 vcol;
-  void main(){
-    vec4 p = u_mvp * vec4(a_pos,1.0);
-    gl_Position = p;
-    gl_PointSize = u_pointSize;
-    vcol = a_col;
-  }`;
-  const fsPoints = `
-  precision mediump float;
-  varying vec3 vcol;
-  void main(){
-    vec2 uv = gl_PointCoord*2.0 - 1.0;
-    float r2 = dot(uv,uv);
-    if(r2>1.0) discard;
-    float core = smoothstep(0.2, 0.0, r2);   // crisp core
-    float edge = smoothstep(1.0, 0.2, r2);   // soft edge
-    vec3 col = mix(vcol*0.8, vcol, core) + vec3(1.0,0.95,0.8)*0.25*core;
-    gl_FragColor = vec4(col, edge);
-  }`;
+  const vsPoints = `attribute vec3 a_pos; attribute vec3 a_col; uniform mat4 u_mvp; uniform float u_pointSize; varying vec3 vcol; void main(){ vec4 p=u_mvp*vec4(a_pos,1.0); gl_Position=p; gl_PointSize=u_pointSize; vcol=a_col; }`;
+  const fsPoints = `precision mediump float; varying vec3 vcol; void main(){ vec2 uv=gl_PointCoord*2.0-1.0; float r2=dot(uv,uv); if(r2>1.0) discard; float core=smoothstep(0.22,0.0,r2); float edge=smoothstep(1.0,0.25,r2); vec3 col=mix(vcol*0.8,vcol,core)+vec3(1.0,0.95,0.8)*0.25*core; gl_FragColor=vec4(col, edge); }`;
 
-  const vsFade = `attribute vec2 a_pos; void main(){ gl_Position = vec4(a_pos, 0.0, 1.0); }`;
-  const fsFade = `precision mediump float; uniform vec4 u_fadeColor; void main(){ gl_FragColor = u_fadeColor; }`;
+  const vsFade = `attribute vec2 a_pos; void main(){ gl_Position=vec4(a_pos,0.0,1.0);} `;
+  const fsFade = `precision mediump float; uniform vec4 u_fadeColor; void main(){ gl_FragColor=u_fadeColor; }`;
 
   const progPoints = makeProgram(vsPoints, fsPoints);
-  const locP = {
-    a_pos: gl.getAttribLocation(progPoints,'a_pos'),
-    a_col: gl.getAttribLocation(progPoints,'a_col'),
-    u_mvp: gl.getUniformLocation(progPoints,'u_mvp'),
-    u_pointSize: gl.getUniformLocation(progPoints,'u_pointSize')
-  };
+  const locP = { a_pos: gl.getAttribLocation(progPoints,'a_pos'), a_col: gl.getAttribLocation(progPoints,'a_col'), u_mvp: gl.getUniformLocation(progPoints,'u_mvp'), u_pointSize: gl.getUniformLocation(progPoints,'u_pointSize') };
   const progFade = makeProgram(vsFade, fsFade);
   const locF = { a_pos: gl.getAttribLocation(progFade,'a_pos'), u_fadeColor: gl.getUniformLocation(progFade,'u_fadeColor') };
 
-  // Buffers
-  const posBuf = gl.createBuffer();
-  const colBuf = gl.createBuffer();
-  const fadeBuf = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, fadeBuf);
-  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([ -1,-1,  3,-1,  -1,3 ]), gl.STATIC_DRAW);
+  const posBuf = gl.createBuffer(); const colBuf = gl.createBuffer(); const fadeBuf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, fadeBuf); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([ -1,-1, 3,-1, -1,3 ]), gl.STATIC_DRAW);
 
   gl.enable(gl.BLEND);
   gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
   gl.clearColor(0.03,0.05,0.12,1);
 
-  // Mat4
   function mat4_identity(){ return [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]; }
   function mat4_mul(a,b){ const o=new Array(16); for(let i=0;i<4;i++) for(let j=0;j<4;j++){ o[i*4+j]=a[i*4+0]*b[0*4+j]+a[i*4+1]*b[1*4+j]+a[i*4+2]*b[2*4+j]+a[i*4+3]*b[3*4+j]; } return o; }
   function mat4_perspective(fovy,aspect,near,far){ const f=1/Math.tan(fovy/2), nf=1/(near-far); return [f/aspect,0,0,0, 0,f,0,0, 0,0,(far+near)*nf,-1, 0,0,(2*far*near)*nf,0]; }
@@ -222,68 +168,33 @@
   function mat4_rotateX(m,a){ const c=Math.cos(a), s=Math.sin(a); const r=[1,0,0,0, 0,c,-s,0, 0,s,c,0, 0,0,0,1]; return mat4_mul(m,r); }
   function cameraMVP(){ fullResize(); const w=canvas.width,h=canvas.height,aspect=w/Math.max(1,h); let P=mat4_perspective(50*Math.PI/180,aspect,0.05,200.0); let V=mat4_identity(); V=mat4_rotateX(V,world.cam.elevation); V=mat4_rotateY(V,world.cam.azimuth); V=mat4_translate(V,-world.cam.panX,-world.cam.panY,-world.cam.distance); return mat4_mul(P,V); }
 
-  // RNG & palette
   function seeded(seed){ let a=(seed>>>0)||1; return ()=>{ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,a|1); t^=t+Math.imul(t^t>>>7,t|61); return ((t^t>>>14)>>>0)/4294967296; }; }
   const palette=[[0.64,0.72,1],[0.62,0.89,1],[1,0.83,0.5],[1,0.62,0.7],[0.84,1,0.62],[0.78,0.66,1],[0.62,1,0.85]];
   const pick=i=>palette[i%palette.length];
 
-  // Presets
   function createBodies(n,opts){
     const out=[]; const {mMin=0.5,mMax=3, radius=0.9, preset='random'}=opts||{}; const R=radius;
     const rnd=seeded(parseInt(ctl.seed.value,10)||42);
     function push(x,y,z,vx,vy,vz,m,c){ out.push({x,y,z,vx,vy,vz,ax:0,ay:0,az:0,m,color:c}); }
     if(preset==='random'){
-      for(let i=0;i<n;i++){
-        const r=R*Math.pow(rnd(),1/3); const th=Math.acos(1-2*rnd()); const ph=2*Math.PI*rnd();
-        const x=r*Math.sin(th)*Math.cos(ph), y=r*Math.sin(th)*Math.sin(ph), z=r*Math.cos(th);
-        const m=mMin+(mMax-mMin)*rnd();
-        push(x,y,z,(rnd()-0.5)*0.2,(rnd()-0.5)*0.2,(rnd()-0.5)*0.2,m,pick(i));
-      }
+      for(let i=0;i<n;i++){ const r=R*Math.pow(rnd(),1/3); const th=Math.acos(1-2*rnd()); const ph=2*Math.PI*rnd(); const x=r*Math.sin(th)*Math.cos(ph), y=r*Math.sin(th)*Math.sin(ph), z=r*Math.cos(th); const m=mMin+(mMax-mMin)*rnd(); push(x,y,z,(rnd()-0.5)*0.2,(rnd()-0.5)*0.2,(rnd()-0.5)*0.2,m,pick(i)); }
     } else if(preset==='spiral'){
       const haloM=60, core=0.2, thickness=0.06;
-      for(let i=0;i<n;i++){
-        const t=rnd(), arm=(i%2)*Math.PI, r=R*(0.08+0.92*t), ang=arm + 2.5*Math.log(1+3*r);
-        const x=r*Math.cos(ang), y=r*Math.sin(ang), z=(rnd()-0.5)*thickness;
-        const m=mMin+(mMax-mMin)*rnd();
-        const v = Math.sqrt(parseFloat(ctl.G.value||1)*(20 + haloM*(r/(r+core)))/Math.max(r,0.02));
-        const ax = Math.atan2(y,x);
-        const jitter = (rnd()-0.5)*0.03;
-        push(x,y,z, (-v*Math.sin(ax)+jitter), (v*Math.cos(ax)+jitter), (rnd()-0.5)*0.01, m, pick(i));
-      }
-      push(0,0,0,0,0,0,50,[1,0.83,0.5]);
+      for(let i=0;i<n;i++){ const t=rnd(), arm=(i%2)*Math.PI, r=R*(0.08+0.92*t), ang=arm + 2.5*Math.log(1+3*r); const x=r*Math.cos(ang), y=r*Math.sin(ang), z=(rnd()-0.5)*thickness; const m=mMin+(mMax-mMin)*rnd(); const v = Math.sqrt(parseFloat(ctl.G.value||1)*(20 + haloM*(r/(r+core)))/Math.max(r,0.02)); const ax = Math.atan2(y,x); const jitter = (rnd()-0.5)*0.03; push(x,y,z, (-v*Math.sin(ax)+jitter), (v*Math.cos(ax)+jitter), (rnd()-0.5)*0.01, m, pick(i)); } push(0,0,0,0,0,0,50,[1,0.83,0.5]);
     } else if(preset==='bh'){
       const M=250; push(0,0,0,0,0,0,M,[1,0.83,0.5]);
-      for(let i=0;i<n;i++){
-        const r=R*(0.15+0.85*Math.sqrt(rnd())); const a=rnd()*2*Math.PI; const tilt=(rnd()-0.5)*0.15;
-        const x=r*Math.cos(a), y=r*Math.sin(a), z=tilt*r;
-        const v=Math.sqrt(parseFloat(ctl.G.value||1)*M/Math.max(r,0.01))*0.98;
-        const e=(rnd()-0.5)*0.1; const vx= -v*Math.sin(a)*(1+e), vy= v*Math.cos(a)*(1-e), vz=(rnd()-0.5)*0.02;
-        const m=mMin+(mMax-mMin)*rnd(); push(x,y,z,vx,vy,vz,m,pick(i));
-      }
+      for(let i=0;i<n;i++){ const r=R*(0.15+0.85*Math.sqrt(rnd())); const a=rnd()*2*Math.PI; const tilt=(rnd()-0.5)*0.15; const x=r*Math.cos(a), y=r*Math.sin(a), z=tilt*r; const v=Math.sqrt(parseFloat(ctl.G.value||1)*M/Math.max(r,0.01))*0.98; const e=(rnd()-0.5)*0.1; const vx= -v*Math.sin(a)*(1+e), vy= v*Math.cos(a)*(1-e), vz=(rnd()-0.5)*0.02; const m=mMin+(mMax-mMin)*rnd(); push(x,y,z,vx,vy,vz,m,pick(i)); }
     } else if(preset==='solar_general'){
       const starM=300; push(0,0,0,0,0,0,starM,[1,0.83,0.5]);
       const planets=Math.max(1, Math.min(12, n));
-      for(let i=0;i<planets;i++){
-        const r=0.12+(i+1)*0.1; const inc=(rnd()-0.5)*0.15; const a=rnd()*2*Math.PI;
-        const x=r*Math.cos(a), y=r*Math.sin(a)*Math.cos(inc), z=r*Math.sin(a)*Math.sin(inc);
-        const v=Math.sqrt(parseFloat(ctl.G.value||1)*starM/r);
-        const vx=-v*Math.sin(a), vy=v*Math.cos(a)*Math.cos(inc), vz=v*Math.cos(a)*Math.sin(inc);
-        const m=0.5+rnd()*1.5; push(x,y,z,vx,vy,vz,m,pick(i));
-      }
+      for(let i=0;i<planets;i++){ const r=0.12+(i+1)*0.1; const inc=(rnd()-0.5)*0.15; const a=rnd()*2*Math.PI; const x=r*Math.cos(a), y=r*Math.sin(a)*Math.cos(inc), z=r*Math.sin(a)*Math.sin(inc); const v=Math.sqrt(parseFloat(ctl.G.value||1)*starM/r); const vx=-v*Math.sin(a), vy=v*Math.cos(a)*Math.cos(inc), vz=v*Math.cos(a)*Math.sin(inc); const m=0.5+rnd()*1.5; push(x,y,z,vx,vy,vz,m,pick(i)); }
     } else if(preset==='binary'){
-      const M=30; out.push({x:-0.25,y:0,z:0,vx:0,vy:-0.35,vz:0,ax:0,ay:0,az:0,m:M,color:[1,0.83,0.5]});
-      out.push({x:0.25,y:0,z:0,vx:0,vy:0.35,vz:0,ax:0,ay:0,az:0,m:M,color:[1,0.83,0.5]});
-      for(let i=0;i<n;i++){
-        const r=0.8*R*Math.cbrt(Math.random()); const th=2*Math.PI*Math.random(); const ph=Math.acos(1-2*Math.random());
-        const x=r*Math.sin(ph)*Math.cos(th), y=r*Math.sin(ph)*Math.sin(th), z=r*Math.cos(ph);
-        const m=mMin+(mMax-mMin)*Math.random();
-        out.push({x,y,z,vx:(Math.random()-0.5)*0.2,vy:(Math.random()-0.5)*0.2,vz:(Math.random()-0.5)*0.2,ax:0,ay:0,az:0,m,color:pick(i)});
-      }
+      const M=30; out.push({x:-0.25,y:0,z:0,vx:0,vy:-0.35,vz:0,ax:0,ay:0,az:0,m:M,color:[1,0.83,0.5]}); out.push({x:0.25,y:0,z:0,vx:0,vy:0.35,vz:0,ax:0,ay:0,az:0,m:M,color:[1,0.83,0.5]});
+      for(let i=0;i<n;i++){ const r=0.8*R*Math.cbrt(Math.random()); const th=2*Math.PI*Math.random(); const ph=Math.acos(1-2*Math.random()); const x=r*Math.sin(ph)*Math.cos(th), y=r*Math.sin(ph)*Math.sin(th), z=r*Math.cos(ph); const m=mMin+(mMax-mMin)*Math.random(); out.push({x,y,z,vx:(Math.random()-0.5)*0.2,vy:(Math.random()-0.5)*0.2,vz:(Math.random()-0.5)*0.2,ax:0,ay:0,az:0,m,color:pick(i)}); }
     }
     return out;
   }
 
-  // Physics
   function computeAccelerations(bodies,G,eps2){
     const n=bodies.length;
     for(let i=0;i<n;i++){ const b=bodies[i]; b.ax=b.ay=b.az=0; }
@@ -313,9 +224,7 @@
     world.step++;
   }
 
-  // Upload to GPU
-  const pos = new Float32Array(3*4000); // max capacity
-  const col = new Float32Array(3*4000);
+  const pos = new Float32Array(3*4000); const col = new Float32Array(3*4000);
   function uploadBuffers(){
     const n=world.bodies.length;
     for(let i=0;i<n;i++){ const b=world.bodies[i]; pos[i*3]=b.x; pos[i*3+1]=b.y; pos[i*3+2]=b.z; col[i*3]=b.color[0]; col[i*3+1]=b.color[1]; col[i*3+2]=b.color[2]; }
@@ -323,19 +232,19 @@
     gl.bindBuffer(gl.ARRAY_BUFFER, colBuf); gl.bufferData(gl.ARRAY_BUFFER, col.subarray(0, n*3), gl.DYNAMIC_DRAW);
   }
 
-  // Trails
   function drawFade(){
     const mode=ctl.trails.value;
-    let alpha=1.0;
-    if(mode==='short') alpha=0.12;
-    else if(mode==='long') alpha=0.06;
-    else if(mode==='ultra') alpha=0.03;
+    if(mode==='off'){ gl.clear(gl.COLOR_BUFFER_BIT); return; }
+    let a=parseFloat(ctl.trailAlpha.value||'0.02'); // smaller a -> longer trails
+    if(mode==='short') a=Math.max(a,0.10);
+    else if(mode==='long') a=Math.min(Math.max(a,0.04),0.08);
+    else if(mode==='ultra') a=Math.min(a,0.03);
     gl.useProgram(progFade);
     gl.bindBuffer(gl.ARRAY_BUFFER, fadeBuf);
     gl.enableVertexAttribArray(locF.a_pos);
     gl.vertexAttribPointer(locF.a_pos, 2, gl.FLOAT, false, 0, 0);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-    gl.uniform4f(locF.u_fadeColor, 0.03,0.05,0.12, alpha);
+    gl.uniform4f(locF.u_fadeColor, 0.03,0.05,0.12, a);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }
 
@@ -356,98 +265,39 @@
   }
 
   function render(){
-    if(ctl.trails.value==='off'){ gl.clear(gl.COLOR_BUFFER_BIT); } else { drawFade(); }
-
-    // Glow pass (additive)
-    if(ctl.glow.checked){
-      gl.blendFunc(gl.ONE, gl.ONE);
-      const glowScale = 2.0 + parseFloat(ctl.glowStrength.value||'0.8'); // 2..4
-      renderPoints((parseFloat(ctl.radius.value)||4)*glowScale);
-    }
-    // Core pass
+    drawFade();
+    if(ctl.glow.checked){ gl.blendFunc(gl.ONE, gl.ONE); const glowScale = 2.0 + parseFloat(ctl.glowStrength.value||'1.2'); renderPoints((parseFloat(ctl.radius.value)||4)*glowScale); }
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     renderPoints((parseFloat(ctl.radius.value)||4));
-
-    // Optional test dot
-    if(ctl.testDot.checked){
-      const pos1 = new Float32Array([0,0,0]);
-      const col1 = new Float32Array([1,1,1]);
-      gl.bindBuffer(gl.ARRAY_BUFFER, posBuf); gl.bufferData(gl.ARRAY_BUFFER, pos1, gl.DYNAMIC_DRAW);
-      gl.vertexAttribPointer(locP.a_pos, 3, gl.FLOAT, false, 0, 0);
-      gl.bindBuffer(gl.ARRAY_BUFFER, colBuf); gl.bufferData(gl.ARRAY_BUFFER, col1, gl.DYNAMIC_DRAW);
-      gl.vertexAttribPointer(locP.a_col, 3, gl.FLOAT, false, 0, 0);
-      renderPoints(28.0);
-      uploadBuffers();
-    }
+    if(ctl.testDot.checked){ const pos1=new Float32Array([0,0,0]); const col1=new Float32Array([1,1,1]); gl.bindBuffer(gl.ARRAY_BUFFER,posBuf); gl.bufferData(gl.ARRAY_BUFFER,pos1,gl.DYNAMIC_DRAW); gl.vertexAttribPointer(locP.a_pos,3,gl.FLOAT,false,0,0); gl.bindBuffer(gl.ARRAY_BUFFER,colBuf); gl.bufferData(gl.ARRAY_BUFFER,col1,gl.DYNAMIC_DRAW); gl.vertexAttribPointer(locP.a_col,3,gl.FLOAT,false,0,0); renderPoints(28.0); uploadBuffers(); }
   }
 
-  // Camera
   (function cameraControls(){
     const state={down:false, right:false, lastX:0,lastY:0};
     canvas.addEventListener('mousedown',e=>{ state.down=true; state.right=(e.button===2); state.lastX=e.clientX; state.lastY=e.clientY; e.preventDefault(); });
     window.addEventListener('mouseup',()=>{ state.down=false; });
-    window.addEventListener('mousemove',e=>{
-      if(!state.down) return;
-      const dx=e.clientX-state.lastX, dy=e.clientY-state.lastY; state.lastX=e.clientX; state.lastY=e.clientY;
-      if(state.right || e.shiftKey){ world.cam.panX -= dx*0.001*world.cam.distance; world.cam.panY += dy*0.001*world.cam.distance; }
-      else { world.cam.azimuth += dx*0.005; world.cam.elevation = Math.max(-Math.PI/2+0.01, Math.min(Math.PI/2-0.01, world.cam.elevation+dy*0.005)); }
-      ctl.camTxt.textContent = `${(world.cam.azimuth*180/Math.PI)|0}° / ${(world.cam.elevation*180/Math.PI)|0}° / ${world.cam.distance.toFixed(2)}`;
-    });
+    window.addEventListener('mousemove',e=>{ if(!state.down) return; const dx=e.clientX-state.lastX, dy=e.clientY-state.lastY; state.lastX=e.clientX; state.lastY=e.clientY; if(state.right||e.shiftKey){ world.cam.panX -= dx*0.001*world.cam.distance; world.cam.panY += dy*0.001*world.cam.distance; } else { world.cam.azimuth += dx*0.005; world.cam.elevation = Math.max(-Math.PI/2+0.01, Math.min(Math.PI/2-0.01, world.cam.elevation+dy*0.005)); } ctl.camTxt.textContent = `${(world.cam.azimuth*180/Math.PI)|0}° / ${(world.cam.elevation*180/Math.PI)|0}° / ${world.cam.distance.toFixed(2)}`; });
     canvas.addEventListener('wheel',e=>{ e.preventDefault(); world.cam.distance = Math.max(0.5, Math.min(50, world.cam.distance * Math.exp(e.deltaY*0.001))); ctl.camTxt.textContent = `${(world.cam.azimuth*180/Math.PI)|0}° / ${(world.cam.elevation*180/Math.PI)|0}° / ${world.cam.distance.toFixed(2)}`; }, {passive:false});
     canvas.addEventListener('dblclick',()=>{ world.cam={ azimuth:0.4, elevation:0.35, distance:4.2, panX:0, panY:0 }; ctl.camTxt.textContent = `${(world.cam.azimuth*180/Math.PI)|0}° / ${(world.cam.elevation*180/Math.PI)|0}° / ${world.cam.distance.toFixed(2)}`; });
     canvas.addEventListener('contextmenu',e=>e.preventDefault());
     ctl.camTxt.textContent = `${(world.cam.azimuth*180/Math.PI)|0}° / ${(world.cam.elevation*180/Math.PI)|0}° / ${world.cam.distance.toFixed(2)}`;
   })();
 
-  // Stats
-  function computeEnergy(){
-    const G=parseFloat(ctl.G.value)||1, eps2=Math.pow(parseFloat(ctl.eps.value)||0.02,2);
-    let K=0,U=0; const b=world.bodies;
-    for(const p of b){ K += 0.5*p.m*(p.vx*p.vx+p.vy*p.vy+p.vz*p.vz); }
-    for(let i=0;i<b.length;i++){ for(let j=i+1;j<b.length;j++){ const dx=b[j].x-b[i].x, dy=b[j].y-b[i].y, dz=b[j].z-b[i].z; const r=Math.sqrt(dx*dx+dy*dy+dz*dz+eps2); U += -G*b[i].m*b[j].m/r; } }
-    ctl.statE.textContent=(K+U).toFixed(3);
-  }
+  function computeEnergy(){ const G=parseFloat(ctl.G.value)||1, eps2=Math.pow(parseFloat(ctl.eps.value)||0.02,2); let K=0,U=0; const b=world.bodies; for(const p of b){ K += 0.5*p.m*(p.vx*p.vx+p.vy*p.vy+p.vz*p.vz); } for(let i=0;i<b.length;i++){ for(let j=i+1;j<b.length;j++){ const dx=b[j].x-b[i].x, dy=b[j].y-b[i].y, dz=b[j].z-b[i].z; const r=Math.sqrt(dx*dx+dy*dy+dz*dz+eps2); U += -G*b[i].m*b[j].m/r; } } ctl.statE.textContent=(K+U).toFixed(3); }
 
-  // Reset and loop
-  function reset(){
-    world.preset = ctl.preset.value;
-    const n=parseInt(ctl.nBodies.value,10)||1000;
-    const mMin=parseFloat(ctl.mMin.value)||0.3, mMax=parseFloat(ctl.mMax.value)||2.5, radius=parseFloat(ctl.spawnR.value)||0.9;
-    world.bodies = createBodies(n,{mMin,mMax,radius,preset:world.preset});
-    computeAccelerations(world.bodies, parseFloat(ctl.G.value)||1, Math.pow(parseFloat(ctl.eps.value)||0.02,2));
-    world.step=0;
-    uploadBuffers();
-    overlay.textContent='Running… (Space to pause)';
-    log(`Reset — preset=${world.preset} bodies=${world.bodies.length}`);
-  }
+  function reset(){ world.preset = ctl.preset.value; const n=parseInt(ctl.nBodies.value,10)||1000; const mMin=parseFloat(ctl.mMin.value)||0.3, mMax=parseFloat(ctl.mMax.value)||2.5, radius=parseFloat(ctl.spawnR.value)||0.9; world.bodies = createBodies(n,{mMin,mMax,radius,preset:world.preset}); computeAccelerations(world.bodies, parseFloat(ctl.G.value)||1, Math.pow(parseFloat(ctl.eps.value)||0.02,2)); world.step=0; uploadBuffers(); overlay.textContent='Running… (Space to pause)'; log(`Reset — preset=${world.preset} bodies=${world.bodies.length}`); }
 
-  function startLoop(){
-    let last=performance.now(), acc=0, frames=0;
-    function tick(t){
-      const dt=t-last; last=t;
-      if(!world.paused){ stepSystem(); if(world.step%4===0){ computeEnergy(); uploadBuffers(); } }
-      render();
-      frames++; acc+=dt; if(acc>=500){ ctl.statFPS.textContent = String(Math.round(frames/(acc/1000))); frames=0; acc=0; }
-      ctl.statStep.textContent=String(world.step);
-      requestAnimationFrame(tick);
-    }
-    requestAnimationFrame(tick);
-  }
+  function startLoop(){ let last=performance.now(), acc=0, frames=0; function tick(t){ const dt=t-last; last=t; if(!world.paused){ stepSystem(); if(world.step%4===0){ computeEnergy(); uploadBuffers(); } } render(); frames++; acc+=dt; if(acc>=500){ ctl.statFPS.textContent = String(Math.round(frames/(acc/1000))); frames=0; acc=0; } ctl.statStep.textContent=String(world.step); requestAnimationFrame(tick);} requestAnimationFrame(tick); }
 
-  // Wiring
   ctl.btnStart.addEventListener('click',()=>{ world.paused=false; overlay.textContent='Running… (Space to pause)'; });
   ctl.btnPause.addEventListener('click',()=>{ world.paused=!world.paused; overlay.textContent = world.paused?'Paused (Space to resume)':'Running… (Space to pause)'; ctl.btnPause.textContent = world.paused?'⏵ Resume':'⏸ Pause'; });
   ctl.btnReset.addEventListener('click',reset);
   window.addEventListener('keydown',e=>{ if(e.code==='Space'){ e.preventDefault(); ctl.btnPause.click(); } });
 
-  // Trigger full reset on structural changes
   ['preset','nBodies','seed','mMin','mMax','spawnR','G','dt','eps'].forEach(id=>$(id).addEventListener('change', reset));
-  // Live changes without reset
-  ['speed','radius','trails','glow','glowStrength','testDot'].forEach(id=>$(id).addEventListener('input', ()=>{}));
+  ['speed','radius','trails','trailAlpha','glow','glowStrength','testDot'].forEach(id=>$(id).addEventListener('input', ()=>{}));
 
-  // Boot
-  reset();
-  startLoop();
+  reset(); startLoop();
 })();
 </script>
 </body>
