@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>N-Body Playground — v7.1 (Full 3D, Fixes)</title>
+<title>N-Body Playground — v7.3 (Full 3D)</title>
 <style>
   :root{ --bg:#0b1020; --text:#e6ebff; --muted:#8ea0d0; --accent:#6aa6ff; }
   *{box-sizing:border-box}
@@ -21,6 +21,7 @@
   .btn.primary{background:linear-gradient(180deg,#1b2a66,#132558);border-color:#4054a8;color:#fff}
   .small{font-size:12px;color:#8ea0d0;line-height:1.4}
   #diag{background:#0c1430;border:1px solid #2a3a7a;border-radius:8px;padding:8px;max-height:140px;overflow:auto;font-size:12px;color:#cde;white-space:pre-wrap}
+  #main{position:relative}
   #canvas{width:100%;height:100%;display:block}
   #overlay{position:absolute;right:12px;top:12px;z-index:5;padding:6px 8px;border-radius:8px;background:#141b36cc;border:1px solid #2a3a7a;color:#c9d4ff;font-size:12px;pointer-events:none}
   .pill{display:inline-block;padding:2px 6px;border:1px solid #2a3a7a;border-radius:999px;background:#0e1640;color:#cfe2ff;margin-right:6px}
@@ -67,11 +68,12 @@
 
     <h2>Rendering</h2>
     <div class="row">
-      <label class="row"><span>Point size</span><input id="radius" type="range" min="1" max="5" step="0.5" value="2.5"></label>
+      <label class="row"><span>Point size</span><input id="radius" type="range" min="1" max="8" step="0.5" value="4"></label>
       <label class="row"><span>Trails</span>
         <select id="trails"><option value="off">Off</option><option value="short" selected>Short</option><option value="long">Long</option></select>
       </label>
     </div>
+    <label class="row"><span>Show test dot</span><input id="testDot" type="checkbox"></label>
 
     <h2>Camera</h2>
     <div class="small">
@@ -96,7 +98,7 @@
     <div id="diag" class="small">Booting…</div>
   </aside>
 
-  <main style="position:relative">
+  <main id="main">
     <div id="overlay">Running… (Space to pause)</div>
     <canvas id="canvas"></canvas>
   </main>
@@ -116,13 +118,13 @@
     preset:$('preset'), presetExtras: $('presetExtras'),
     nBodies:$('nBodies'), seed:$('seed'), mMin:$('mMin'), mMax:$('mMax'), spawnR:$('spawnR'),
     G:$('G'), dt:$('dt'), eps:$('eps'), speed:$('speed'),
-    radius:$('radius'), trails:$('trails'),
+    radius:$('radius'), trails:$('trails'), testDot:$('testDot'),
     btnStart:$('btnStart'), btnPause:$('btnPause'), btnReset:$('btnReset'),
     statStep:$('statStep'), statE:$('statE'), statFPS:$('statFPS'),
     camTxt:$('camTxt')
   };
 
-  const DEFAULTS={ preset:'random', nBodies:1400, seed:42, mMin:0.3, mMax:2.5, spawnR:0.9, G:1, dt:0.01, eps:0.02, speed:1, radius:2.5, trails:'short' };
+  const DEFAULTS={ preset:'random', nBodies:1400, seed:42, mMin:0.3, mMax:2.5, spawnR:0.9, G:1, dt:0.01, eps:0.02, speed:1, radius:4, trails:'short' };
   function applyDefaults(){ for(const[k,v] of Object.entries(DEFAULTS)){ if(ctl[k]) ctl[k].value=String(v);}}
 
   // World state
@@ -130,13 +132,13 @@
     preset:'random',
     bodies:[], // {x,y,z,vx,vy,vz,ax,ay,az,m,color}
     step:0, paused:false,
-    flags:{ spiralBar:false, spiralBarSpeed:0.7, spiralBarStrength:0.25, spiralBarRandom:true, spiralBarPhase0:0,
-            showAccretion:true, showSolarFlares:true },
+    flags:{ spiralBar:false, spiralBarSpeed:0.7, spiralBarStrength:0.25, spiralBarRandom:true, spiralBarPhase0:0 },
     cam:{ azimuth:0.4, elevation:0.35, distance:4.2, panX:0, panY:0 }
   };
 
   // WebGL init
   const canvas=$('canvas');
+  const main=$('main');
   let gl = canvas.getContext('webgl', {antialias:true, alpha:false, preserveDrawingBuffer:false});
   if(!gl){ gl = canvas.getContext('experimental-webgl'); }
   if(!gl){ log('WebGL not available — try Chrome/Firefox on desktop.'); return; }
@@ -149,9 +151,11 @@
     const h = Math.max(2, Math.floor(rect.height*dpr));
     if(canvas.width!==w || canvas.height!==h){ canvas.width=w; canvas.height=h; gl.viewport(0,0,w,h); }
   }
-  resize(); window.addEventListener('resize', resize);
+  function ensureLayout(){ main.style.transform='translateZ(0)'; void main.offsetHeight; main.style.transform=''; }
+  function fullResize(){ ensureLayout(); resize(); }
+  fullResize(); window.addEventListener('resize', fullResize);
 
-  // Shaders
+  // Shaders — constant point size to guarantee visibility across stacks
   const vs = `
   attribute vec3 a_pos;
   attribute vec3 a_col;
@@ -161,7 +165,7 @@
   void main(){
     vec4 p = u_mvp * vec4(a_pos,1.0);
     gl_Position = p;
-    gl_PointSize = u_pointSize / max(0.3, p.w);
+    gl_PointSize = u_pointSize;
     vcol = a_col;
   }`;
   const fs = `
@@ -223,7 +227,7 @@
   }
 
   function cameraMVP(){
-    resize();
+    fullResize();
     const w=canvas.width, h=canvas.height, aspect=w/Math.max(1,h);
     let P = mat4_perspective(50*Math.PI/180, aspect, 0.05, 200.0);
     let V = mat4_identity();
@@ -386,7 +390,7 @@
     gl.useProgram(prog);
     const mvp = cameraMVP();
     gl.uniformMatrix4fv(loc.u_mvp,false,new Float32Array(mvp));
-    gl.uniform1f(loc.u_pointSize, (parseFloat(ctl.radius.value)||2.5)*2.5);
+    gl.uniform1f(loc.u_pointSize, (parseFloat(ctl.radius.value)||4));
 
     gl.bindBuffer(gl.ARRAY_BUFFER, posBuf);
     gl.enableVertexAttribArray(loc.a_pos);
@@ -396,6 +400,20 @@
     gl.vertexAttribPointer(loc.a_col, 3, gl.FLOAT, false, 0, 0);
 
     gl.drawArrays(gl.POINTS, 0, world.bodies.length);
+
+    if(ctl.testDot.checked){
+      const pos = new Float32Array([0,0,0]);
+      const col = new Float32Array([1,1,1]);
+      gl.bindBuffer(gl.ARRAY_BUFFER, posBuf); gl.bufferData(gl.ARRAY_BUFFER, pos, gl.DYNAMIC_DRAW);
+      gl.vertexAttribPointer(loc.a_pos, 3, gl.FLOAT, false, 0, 0);
+      gl.bindBuffer(gl.ARRAY_BUFFER, colBuf); gl.bufferData(gl.ARRAY_BUFFER, col, gl.DYNAMIC_DRAW);
+      gl.vertexAttribPointer(loc.a_col, 3, gl.FLOAT, false, 0, 0);
+      gl.uniform1f(loc.u_pointSize, 28.0);
+      gl.drawArrays(gl.POINTS, 0, 1);
+      uploadBuffers();
+      gl.uniform1f(loc.u_pointSize, (parseFloat(ctl.radius.value)||4));
+    }
+
     frameCount++;
   }
 
@@ -428,19 +446,7 @@
   // Extras UI per preset
   function setExtrasUI(preset){
     const el=ctl.presetExtras; el.innerHTML='';
-    if(preset==='bh'){
-      el.innerHTML=`
-        <h2>Black Hole Visuals</h2>
-        <label class="row"><span>Show accretion disk</span><input id="flagAccDisk" type="checkbox" ${world.flags.showAccretion?'checked':''}></label>
-      `;
-      el.querySelector('#flagAccDisk').addEventListener('change',e=>world.flags.showAccretion=e.target.checked);
-    } else if(preset==='solar_general'||preset==='solar_real'){
-      el.innerHTML=`
-        <h2>Solar Visuals</h2>
-        <label class="row"><span>Show flares / corona</span><input id="flagSolar" type="checkbox" ${world.flags.showSolarFlares?'checked':''}></label>
-      `;
-      el.querySelector('#flagSolar').addEventListener('change',e=>world.flags.showSolarFlares=e.target.checked);
-    } else if(preset==='spiral'){
+    if(preset==='spiral'){
       const base=document.createElement('div');
       base.innerHTML=`
         <h2>Spiral Options</h2>
