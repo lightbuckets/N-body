@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>N‑Body Playground — v7.6.3 (3D, Robust Trails)</title>
+<title>N‑Body Playground — v7.7.1 (Standalone)</title>
 <style>
   :root{ --bg:#0b1020; --text:#e6ebff; --muted:#8ea0d0; --accent:#6aa6ff; }
   *{box-sizing:border-box}
   html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif}
-  #wrap{display:grid;grid-template-columns:420px 1fr;height:100vh}
+  #wrap{display:grid;grid-template-columns:380px 1fr;height:100vh}
   #controls{background:linear-gradient(180deg,#0f1530 0%,#0b1020 100%);border-right:1px solid #1f2a4d;padding:14px;overflow:auto}
   h1{font-size:18px;margin:6px 0}
   h2{font-size:12px;font-weight:700;margin:14px 0 6px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase}
@@ -32,27 +32,17 @@
   <aside id="controls">
     <h1>N‑Body Playground (3D)</h1>
 
-    <h2>Presets</h2>
-    <label class="row"><span>Setup</span>
-      <select id="preset">
-        <option value="random">Random Cloud (default)</option>
-        <option value="spiral">Spiral Galaxy (disk)</option>
-        <option value="bh">Black Hole + Stars</option>
-        <option value="solar_general">General Solar System</option>
-        <option value="binary">Binary + Field</option>
-      </select>
-    </label>
-
-    <h2>Counts & Mass</h2>
+    <h2>Setup</h2>
     <div class="row">
-      <label class="row"><span>N</span><input id="nBodies" type="number" min="100" max="4000" step="50" value="1200"></label>
+      <label class="row"><span>N</span><input id="nBodies" type="number" min="50" max="2000" step="50" value="800"></label>
       <label class="row"><span>Seed</span><input id="seed" type="number" min="0" max="999999" step="1" value="42"></label>
     </div>
     <div class="row">
-      <label class="row"><span>Mass min</span><input id="mMin" type="number" min="0.01" step="0.01" value="0.3"></label>
-      <label class="row"><span>Mass max</span><input id="mMax" type="number" min="0.01" step="0.01" value="2.5"></label>
+      <label class="row"><span>Mass min</span><input id="mMin" type="number" min="0.05" step="0.05" value="0.2"></label>
+      <label class="row"><span>Mass max</span><input id="mMax" type="number" min="0.05" step="0.05" value="3.0"></label>
     </div>
-    <label class="row"><span>Spawn radius</span><input id="spawnR" type="range" min="0.05" max="2.0" step="0.01" value="0.9"></label>
+    <label class="row"><span>Spawn radius</span><input id="spawnR" type="range" min="0.05" max="3.0" step="0.01" value="1.4"></label>
+    <label class="row"><span>Cloud: start stationary</span><input id="cloudStill" type="checkbox" checked></label>
 
     <h2>Physics</h2>
     <div class="row">
@@ -61,26 +51,18 @@
     </div>
     <div class="row">
       <label class="row"><span>Softening ε</span><input id="eps" type="number" step="0.0005" value="0.02"></label>
-      <label class="row"><span>Speed ×</span><input id="speed" type="range" min="0.25" max="6" step="0.25" value="1"></label>
+      <label class="row"><span>Speed ×</span><input id="speed" type="range" min="0.25" max="8" step="0.25" value="1.5"></label>
     </div>
 
     <h2>Rendering</h2>
     <div class="row">
-      <label class="row"><span>Point size</span><input id="radius" type="range" min="1" max="8" step="0.5" value="4.5"></label>
-      <label class="row"><span>Trails</span>
-        <select id="trails"><option value="off">Off</option><option value="short" selected>Short</option><option value="long">Long</option><option value="ultra">Ultra</option></select>
-      </label>
-    </div>
-    <label class="row"><span>Trail persistence</span><input id="trailAlpha" type="range" min="0.005" max="0.2" step="0.005" value="0.02"></label>
-    <div class="row">
+      <label class="row"><span>Base point size</span><input id="radius" type="range" min="1" max="8" step="0.5" value="4.0"></label>
       <label class="row"><span>Glow</span><input id="glow" type="checkbox" checked></label>
-      <label class="row"><span>Glow strength</span><input id="glowStrength" type="range" min="0" max="2" step="0.05" value="1.0"></label>
     </div>
-    <label class="row"><span>Show test dot</span><input id="testDot" type="checkbox"></label>
 
     <h2>Camera</h2>
     <div class="small">
-      <div><span class="pill">Drag</span> orbit • <span class="pill">Right‑drag</span> pan • <span class="pill">Wheel/Pinch</span> zoom • <span class="pill">Double‑click</span> reset</div>
+      <div><span class="pill">Drag</span> rotate • <span class="pill">Right/Shift‑drag</span> pan • <span class="pill">Wheel/Pinch</span> zoom • <span class="pill">Double‑click</span> reset • <span class="pill">A</span>uto‑fit</div>
       <div>Az/El/Dist: <span id="camTxt">—</span></div>
     </div>
 
@@ -88,13 +70,7 @@
       <button id="btnStart" class="btn primary">▶ Start</button>
       <button id="btnPause" class="btn">⏸ Pause</button>
       <button id="btnReset" class="btn">⟲ Reset</button>
-    </div>
-
-    <h2>Stats</h2>
-    <div class="small">
-      <div>Step: <span id="statStep">0</span></div>
-      <div>Energy: <span id="statE">—</span></div>
-      <div>FPS: <span id="statFPS">—</span></div>
+      <button id="btnFit" class="btn">⤢ Auto‑fit</button>
     </div>
 
     <h2>Diagnostics</h2>
@@ -109,157 +85,152 @@
 
 <script>
 (function(){
-  const VERSION = "v7.6.3";
+  'use strict';
+  const VERSION='v7.7.1-standalone';
   const overlay = document.getElementById('overlay');
   const diag = document.getElementById('diag');
   function log(msg){ const t=new Date().toLocaleTimeString(); diag.textContent += `\\n[${t}] ${msg}`; diag.scrollTop = diag.scrollHeight; }
-  window.addEventListener('error', e=>log('ERROR: '+(e.message||e)));
-  window.addEventListener('unhandledrejection', e=>log('REJECTION: '+e.reason));
 
   const $=id=>document.getElementById(id);
   const ctl={
-    preset:$('preset'),
-    nBodies:$('nBodies'), seed:$('seed'), mMin:$('mMin'), mMax:$('mMax'), spawnR:$('spawnR'),
+    nBodies:$('nBodies'), seed:$('seed'), mMin:$('mMin'), mMax:$('mMax'), spawnR:$('spawnR'), cloudStill:$('cloudStill'),
     G:$('G'), dt:$('dt'), eps:$('eps'), speed:$('speed'),
-    radius:$('radius'), trails:$('trails'), trailAlpha:$('trailAlpha'),
-    glow:$('glow'), glowStrength:$('glowStrength'),
-    testDot:$('testDot'),
-    btnStart:$('btnStart'), btnPause:$('btnPause'), btnReset:$('btnReset'),
-    statStep:$('statStep'), statE:$('statE'), statFPS:$('statFPS'),
+    radius:$('radius'), glow:$('glow'),
+    btnStart:$('btnStart'), btnPause:$('btnPause'), btnReset:$('btnReset'), btnFit:$('btnFit'),
     camTxt:$('camTxt')
   };
 
-  const world={ preset:'random', bodies:[], step:0, paused:false, cam:{ azimuth:0.4, elevation:0.35, distance:4.2, panX:0, panY:0 } };
-
-  const canvas=$('canvas'), main=$('main');
+  // WebGL init
+  const canvas=$('canvas'), main=document.getElementById('main');
+  /** @type {WebGLRenderingContext} */
   let gl = canvas.getContext('webgl', {antialias:true, alpha:false, preserveDrawingBuffer:false});
   if(!gl){ gl = canvas.getContext('experimental-webgl'); }
-  if(!gl){ log(VERSION+' — WebGL not available — try Chrome/Firefox on desktop.'); return; }
+  if(!gl){ log(VERSION+' — WebGL not available'); return; }
   log(VERSION+' — WebGL OK: '+gl.getParameter(gl.VERSION));
 
-  // ==== Shader helpers ====
+  // Resize
+  function ensureSize(){ const dpr=Math.max(1,window.devicePixelRatio||1); const rect=canvas.getBoundingClientRect(); const w=Math.max(2,Math.floor(rect.width*dpr)); const h=Math.max(2,Math.floor(rect.height*dpr)); if(canvas.width!==w||canvas.height!==h){ canvas.width=w; canvas.height=h; gl.viewport(0,0,w,h); } }
+  function fullResize(){ main.style.transform='translateZ(0)'; void main.offsetHeight; main.style.transform=''; ensureSize(); }
+  fullResize(); window.addEventListener('resize', fullResize);
+
+  // Shaders
   function makeProgram(vsSrc,fsSrc){
-    const vs=gl.createShader(gl.VERTEX_SHADER); gl.shaderSource(vs,vsSrc); gl.compileShader(vs);
-    if(!gl.getShaderParameter(vs, gl.COMPILE_STATUS)){ const info=gl.getShaderInfoLog(vs)||'unknown'; log('VS error: '+info); throw new Error(info); }
-    const fs=gl.createShader(gl.FRAGMENT_SHADER); gl.shaderSource(fs,fsSrc); gl.compileShader(fs);
-    if(!gl.getShaderParameter(fs, gl.COMPILE_STATUS)){ const info=gl.getShaderInfoLog(fs)||'unknown'; log('FS error: '+info); throw new Error(info); }
-    const p=gl.createProgram(); gl.attachShader(p,vs); gl.attachShader(p,fs); gl.linkProgram(p);
-    if(!gl.getProgramParameter(p, gl.LINK_STATUS)){ const info=gl.getProgramInfoLog(p)||'unknown'; log('LINK error: '+info); throw new Error(info); }
-    return p;
+    const vs=gl.createShader(gl.VERTEX_SHADER); gl.shaderSource(vs,vsSrc); gl.compileShader(vs); if(!gl.getShaderParameter(vs, gl.COMPILE_STATUS)){ log('VS error: '+gl.getShaderInfoLog(vs)); throw new Error('VS'); }
+    const fs=gl.createShader(gl.FRAGMENT_SHADER); gl.shaderSource(fs,fsSrc); gl.compileShader(fs); if(!gl.getShaderParameter(fs, gl.COMPILE_STATUS)){ log('FS error: '+gl.getShaderInfoLog(fs)); throw new Error('FS'); }
+    const p=gl.createProgram(); gl.attachShader(p,vs); gl.attachShader(p,fs); gl.linkProgram(p); if(!gl.getProgramParameter(p, gl.LINK_STATUS)){ log('LINK error: '+gl.getProgramInfoLog(p)); throw new Error('LINK'); } return p;
   }
 
-  // ==== Programs ====
   const vsPoints = `
     attribute vec3 a_pos;
     attribute vec3 a_col;
+    attribute float a_size;
     uniform mat4 u_mvp;
     uniform float u_pointSize;
     varying vec3 vcol;
-    void main(){ vec4 p=u_mvp*vec4(a_pos,1.0); gl_Position=p; gl_PointSize=u_pointSize; vcol=a_col; }`;
+    void main(){
+      vec4 p=u_mvp*vec4(a_pos,1.0);
+      gl_Position=p;
+      gl_PointSize=u_pointSize * a_size;
+      vcol=a_col;
+    }`;
+
   const fsPoints = `
     precision mediump float;
     varying vec3 vcol;
+    uniform bool u_glow;
     void main(){
       vec2 uv=gl_PointCoord*2.0-1.0;
       float r2=dot(uv,uv);
       if(r2>1.0) discard;
-      float core=smoothstep(0.22,0.0,r2);
+      float core=smoothstep(0.20,0.0,r2);
       float edge=smoothstep(1.0,0.25,r2);
-      vec3 col=mix(vcol*0.8,vcol,core)+vec3(1.0,0.95,0.8)*0.25*core;
+      float halo = u_glow ? smoothstep(1.0,0.0,r2)*0.35 : 0.0;
+      vec3 col = mix(vcol*0.85,vcol,core) + vec3(1.0,0.95,0.8)*0.20*core + halo*vec3(0.8,0.9,1.0);
       gl_FragColor=vec4(col, edge);
     }`;
 
-  const vsQuad = `
-    attribute vec2 a_pos;
-    attribute vec2 a_uv;
-    varying vec2 vuv;
-    void main(){ vuv=a_uv; gl_Position=vec4(a_pos,0.0,1.0); }`;
-  const fsDecay = `
-    precision mediump float;
-    varying vec2 vuv;
-    uniform sampler2D u_prev;
-    uniform vec3 u_bg;
-    uniform float u_decay;
-    void main(){
-      vec4 prev=texture2D(u_prev, vuv);
-      vec3 col = mix(prev.rgb, u_bg, u_decay);
-      gl_FragColor=vec4(col, 1.0);
-    }`;
-  const fsBlit = `
-    precision mediump float;
-    varying vec2 vuv;
-    uniform sampler2D u_tex;
-    void main(){ gl_FragColor=texture2D(u_tex, vuv); }`;
+  const prog = makeProgram(vsPoints, fsPoints);
+  const loc = {
+    a_pos: gl.getAttribLocation(prog,'a_pos'),
+    a_col: gl.getAttribLocation(prog,'a_col'),
+    a_size: gl.getAttribLocation(prog,'a_size'),
+    u_mvp: gl.getUniformLocation(prog,'u_mvp'),
+    u_pointSize: gl.getUniformLocation(prog,'u_pointSize'),
+    u_glow: gl.getUniformLocation(prog,'u_glow')
+  };
 
-  const progPoints = makeProgram(vsPoints, fsPoints);
-  const locP = { a_pos: gl.getAttribLocation(progPoints,'a_pos'), a_col: gl.getAttribLocation(progPoints,'a_col'), u_mvp: gl.getUniformLocation(progPoints,'u_mvp'), u_pointSize: gl.getUniformLocation(progPoints,'u_pointSize') };
-
-  const progDecay = makeProgram(vsQuad, fsDecay);
-  const locD = { a_pos: gl.getAttribLocation(progDecay,'a_pos'), a_uv: gl.getAttribLocation(progDecay,'a_uv'), u_prev: gl.getUniformLocation(progDecay,'u_prev'), u_bg: gl.getUniformLocation(progDecay,'u_bg'), u_decay: gl.getUniformLocation(progDecay,'u_decay') };
-
-  const progBlit = makeProgram(vsQuad, fsBlit);
-  const locB = { a_pos: gl.getAttribLocation(progBlit,'a_pos'), a_uv: gl.getAttribLocation(progBlit,'a_uv'), u_tex: gl.getUniformLocation(progBlit,'u_tex') };
-
-  // ==== Buffers ====
+  // Buffers
   const posBuf = gl.createBuffer();
   const colBuf = gl.createBuffer();
-  const quadBuf = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
-  const quad = new Float32Array([
-    -1,-1,  0,0,
-     1,-1,  1,0,
-    -1, 1,  0,1,
-     1, 1,  1,1
-  ]);
-  gl.bufferData(gl.ARRAY_BUFFER, quad, gl.STATIC_DRAW);
+  const sizeBuf = gl.createBuffer();
 
   gl.enable(gl.BLEND);
   gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
   gl.clearColor(0.03,0.05,0.12,1);
-  const bg = [0.03,0.05,0.12];
 
-  // ==== Mat4 ====
+  // Matrices (minimal)
   function mat4_identity(){ return [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]; }
-  function mat4_mul(a,b){ const o=new Array(16); for(let i=0;i<4;i++) for(let j=0;j<4;j++){ o[i*4+j]=a[i*4+0]*b[0*4+j]+a[i*4+1]*b[1*4+j]+a[i*4+2]*b[2*4+j]+a[i*4+3]*b[3*4+j]; } return o; }
-  function mat4_perspective(fovy,aspect,near,far){ const f=1/Math.tan(fovy/2), nf=1/(near-far); return [f/aspect,0,0,0, 0,f,0,0, 0,0,(far+near)*nf,-1, 0,0,(2*far*near)*nf,0]; }
+  function mat4_mul(a,b){ const o=new Float32Array(16); for(let i=0;i<4;i++) for(let j=0;j<4;j++){ o[i*4+j]=a[i*4+0]*b[0*4+j]+a[i*4+1]*b[1*4+j]+a[i*4+2]*b[2*4+j]+a[i*4+3]*b[3*4+j]; } return o; }
+  function mat4_perspective(fovy,aspect,near,far){ const f=1/Math.tan(fovy/2), nf=1/(near-far); return new Float32Array([f/aspect,0,0,0, 0,f,0,0, 0,0,(far+near)*nf,-1, 0,0,(2*far*near)*nf,0]); }
   function mat4_translate(m,x,y,z){ const t=mat4_identity(); t[12]=x; t[13]=y; t[14]=z; return mat4_mul(m,t); }
   function mat4_rotateY(m,a){ const c=Math.cos(a), s=Math.sin(a); const r=[c,0,s,0, 0,1,0,0, -s,0,c,0, 0,0,0,1]; return mat4_mul(m,r); }
   function mat4_rotateX(m,a){ const c=Math.cos(a), s=Math.sin(a); const r=[1,0,0,0, 0,c,-s,0, 0,s,c,0, 0,0,0,1]; return mat4_mul(m,r); }
-  function cameraMVP(){ ensureSize(); const w=canvas.width,h=canvas.height,aspect=w/Math.max(1,h); let P=mat4_perspective(50*Math.PI/180,aspect,0.05,200.0); let V=mat4_identity(); V=mat4_rotateX(V,world.cam.elevation); V=mat4_rotateY(V,world.cam.azimuth); V=mat4_translate(V,-world.cam.panX,-world.cam.panY,-world.cam.distance); return mat4_mul(P,V); }
+  function cameraMVP(){ ensureSize(); const w=canvas.width,h=canvas.height,aspect=w/Math.max(1,h); let P=mat4_perspective(50*Math.PI/180,aspect,0.05,500.0); let V=mat4_identity(); V=mat4_rotateX(V,world.cam.elevation); V=mat4_rotateY(V,world.cam.azimuth); V=mat4_translate(V,-world.cam.panX,-world.cam.panY,-world.cam.distance); return mat4_mul(P,V); }
 
-  // ==== RNG & palette ====
-  function seeded(seed){ let a=(seed>>>0)||1; return ()=>{ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,a|1); t^=t+Math.imul(t^t>>>7,t|61); return ((t^t>>>14)>>>0)/4294967296; }; }
+  // Data & physics
+  const MAXN=2000;
+  const pos = new Float32Array(3*MAXN);
+  const col = new Float32Array(3*MAXN);
+  const siz = new Float32Array(MAXN);
   const palette=[[0.64,0.72,1],[0.62,0.89,1],[1,0.83,0.5],[1,0.62,0.7],[0.84,1,0.62],[0.78,0.66,1],[0.62,1,0.85]];
   const pick=i=>palette[i%palette.length];
+  function seeded(seed){ let a=(seed>>>0)||1; return ()=>{ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,a|1); t^=t+Math.imul(t^t>>>7,t|61); return ((t^t>>>14)>>>0)/4294967296; }; }
 
-  // ==== Presets ====
-  function createBodies(n,opts){
-    const out=[]; const {mMin=0.5,mMax=3, radius=0.9, preset='random'}=opts||{}; const R=radius;
+  const bodies=[]; // array of objects {x,y,z,vx,vy,vz,m,color[3]}
+  const world={ step:0, paused:false, cam:{ azimuth:0.4, elevation:0.35, distance:6.0, panX:0, panY:0 } };
+
+  function createCloud(){
+    bodies.length=0;
+    const n=Math.min(MAXN, Math.max(1, parseInt(ctl.nBodies.value,10)||800));
+    const mMin=parseFloat(ctl.mMin.value)||0.2, mMax=parseFloat(ctl.mMax.value)||3.0, R=parseFloat(ctl.spawnR.value)||1.4;
     const rnd=seeded(parseInt(ctl.seed.value,10)||42);
-    function push(x,y,z,vx,vy,vz,m,c){ out.push({x,y,z,vx,vy,vz,ax:0,ay:0,az:0,m,color:c}); }
-    if(preset==='random'){
-      for(let i=0;i<n;i++){ const r=R*Math.pow(rnd(),1/3); const th=Math.acos(1-2*rnd()); const ph=2*Math.PI*rnd(); const x=r*Math.sin(th)*Math.cos(ph), y=r*Math.sin(th)*Math.sin(ph), z=r*Math.cos(th); const m=mMin+(mMax-mMin)*rnd(); push(x,y,z,(rnd()-0.5)*0.2,(rnd()-0.5)*0.2,(rnd()-0.5)*0.2,m,pick(i)); }
-    } else if(preset==='spiral'){
-      const haloM=60, core=0.2, thickness=0.06;
-      for(let i=0;i<n;i++){ const t=rnd(), arm=(i%2)*Math.PI, r=R*(0.08+0.92*t), ang=arm + 2.5*Math.log(1+3*r); const x=r*Math.cos(ang), y=r*Math.sin(ang), z=(rnd()-0.5)*thickness; const m=mMin+(mMax-mMin)*rnd(); const v = Math.sqrt(parseFloat(ctl.G.value||1)*(20 + haloM*(r/(r+core)))/Math.max(r,0.02)); const ax = Math.atan2(y,x); const jitter = (rnd()-0.5)*0.03; push(x,y,z, (-v*Math.sin(ax)+jitter), (v*Math.cos(ax)+jitter), (rnd()-0.5)*0.01, m, pick(i)); } push(0,0,0,0,0,0,50,[1,0.83,0.5]);
-    } else if(preset==='bh'){
-      const M=250; push(0,0,0,0,0,0,M,[1,0.83,0.5]);
-      for(let i=0;i<n;i++){ const r=R*(0.15+0.85*Math.sqrt(rnd())); const a=rnd()*2*Math.PI; const tilt=(rnd()-0.5)*0.15; const x=r*Math.cos(a), y=r*Math.sin(a), z=tilt*r; const v=Math.sqrt(parseFloat(ctl.G.value||1)*M/Math.max(r,0.01))*0.98; const e=(rnd()-0.5)*0.1; const vx= -v*Math.sin(a)*(1+e), vy= v*Math.cos(a)*(1-e), vz=(rnd()-0.5)*0.02; const m=mMin+(mMax-mMin)*rnd(); push(x,y,z,vx,vy,vz,m,pick(i)); }
-    } else if(preset==='solar_general'){
-      const starM=300; push(0,0,0,0,0,0,starM,[1,0.83,0.5]);
-      const planets=Math.max(1, Math.min(12, n));
-      for(let i=0;i<planets;i++){ const r=0.12+(i+1)*0.1; const inc=(rnd()-0.5)*0.15; const a=rnd()*2*Math.PI; const x=r*Math.cos(a), y=r*Math.sin(a)*Math.cos(inc), z=r*Math.sin(a)*Math.sin(inc); const v=Math.sqrt(parseFloat(ctl.G.value||1)*starM/r); const vx=-v*Math.sin(a), vy=v*Math.cos(a)*Math.cos(inc), vz=v*Math.cos(a)*Math.sin(inc); const m=0.5+rnd()*1.5; push(x,y,z,vx,vy,vz,m,pick(i)); }
-    } else if(preset==='binary'){
-      const M=30; out.push({x:-0.25,y:0,z:0,vx:0,vy:-0.35,vz:0,ax:0,ay:0,az:0,m:M,color:[1,0.83,0.5]}); out.push({x:0.25,y:0,z:0,vx:0,vy:0.35,vz:0,ax:0,ay:0,az:0,m:M,color:[1,0.83,0.5]});
-      for(let i=0;i<n;i++){ const r=0.8*R*Math.cbrt(Math.random()); const th=2*Math.PI*Math.random(); const ph=Math.acos(1-2*Math.random()); const x=r*Math.sin(ph)*Math.cos(th), y=r*Math.sin(ph)*Math.sin(th), z=r*Math.cos(ph); const m=mMin+(mMax-mMin)*Math.random(); out.push({x,y,z,vx:(Math.random()-0.5)*0.2,vy:(Math.random()-0.5)*0.2,vz:(Math.random()-0.5)*0.2,ax:0,ay:0,az:0,m,color:pick(i)}); }
+    const still = ctl.cloudStill.checked;
+    for(let i=0;i<n;i++){
+      const r=R*Math.pow(rnd(),1/3);
+      const th=Math.acos(1-2*rnd());
+      const ph=2*Math.PI*rnd();
+      const x=r*Math.sin(th)*Math.cos(ph), y=r*Math.sin(th)*Math.sin(ph), z=r*Math.cos(th);
+      const m=mMin+(mMax-mMin)*Math.pow(rnd(),0.6);
+      const vx = still?0:(rnd()-0.5)*0.12;
+      const vy = still?0:(rnd()-0.5)*0.12;
+      const vz = still?0:(rnd()-0.5)*0.12;
+      const c=pick(i);
+      bodies.push({x,y,z,vx,vy,vz,m,color:c});
     }
-    return out;
+    uploadBuffers();
+    autoFit();
   }
 
-  // ==== Physics ====
-  function computeAccelerations(bodies,G,eps2){
+  function uploadBuffers(){
     const n=bodies.length;
-    for(let i=0;i<n;i++){ const b=bodies[i]; b.ax=b.ay=b.az=0; }
+    let minM=Infinity, maxM=-Infinity;
+    for(let i=0;i<n;i++){ const m=bodies[i].m; if(m<minM) minM=m; if(m>maxM) maxM=m; }
+    const span=Math.max(1e-6, maxM-minM);
+    for(let i=0;i<n;i++){
+      const b=bodies[i];
+      pos[i*3]=b.x; pos[i*3+1]=b.y; pos[i*3+2]=b.z;
+      col[i*3]=b.color[0]; col[i*3+1]=b.color[1]; col[i*3+2]=b.color[2];
+      const t=(b.m-minM)/span;
+      siz[i]=0.75 + 1.75*t; // 1x..2.5x visual scaling
+    }
+    gl.bindBuffer(gl.ARRAY_BUFFER, posBuf); gl.bufferData(gl.ARRAY_BUFFER, pos.subarray(0, n*3), gl.DYNAMIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, colBuf); gl.bufferData(gl.ARRAY_BUFFER, col.subarray(0, n*3), gl.DYNAMIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, sizeBuf); gl.bufferData(gl.ARRAY_BUFFER, siz.subarray(0, n), gl.DYNAMIC_DRAW);
+  }
+
+  function computeAccelerations(G,eps2){
+    const n=bodies.length;
+    for(let i=0;i<n;i++){ bodies[i].ax=0; bodies[i].ay=0; bodies[i].az=0; }
     for(let i=0;i<n;i++){
       const bi=bodies[i];
       for(let j=i+1;j<n;j++){
@@ -279,196 +250,77 @@
     const G=parseFloat(ctl.G.value)||1;
     const eps2=Math.pow(parseFloat(ctl.eps.value)||0.02,2);
     const dt=(parseFloat(ctl.dt.value)||0.02) * (parseFloat(ctl.speed.value)||1);
-    const bodies=world.bodies;
-    for(const b of bodies){ b.vx += 0.5*dt*b.ax; b.vy += 0.5*dt*b.ay; b.vz += 0.5*dt*b.az; b.x += dt*b.vx; b.y += dt*b.vy; b.z += dt*b.vz; }
-    computeAccelerations(bodies,G,eps2);
-    for(const b of bodies){ b.vx += 0.5*dt*b.ax; b.vy += 0.5*dt*b.ay; b.vz += 0.5*dt*b.az; }
+    const n=bodies.length;
+    for(let i=0;i<n;i++){ const b=bodies[i]; b.vx += 0.5*dt*(b.ax||0); b.vy += 0.5*dt*(b.ay||0); b.vz += 0.5*dt*(b.az||0); b.x += dt*b.vx; b.y += dt*b.vy; b.z += dt*b.vz; }
+    computeAccelerations(G,eps2);
+    for(let i=0;i<n;i++){ const b=bodies[i]; b.vx += 0.5*dt*b.ax; b.vy += 0.5*dt*b.ay; b.vz += 0.5*dt*b.az; }
     world.step++;
   }
 
-  // ==== GPU upload ====
-  const pos = new Float32Array(3*4000); const col = new Float32Array(3*4000);
-  function uploadBuffers(){
-    const n=world.bodies.length;
-    for(let i=0;i<n;i++){ const b=world.bodies[i]; pos[i*3]=b.x; pos[i*3+1]=b.y; pos[i*3+2]=b.z; col[i*3]=b.color[0]; col[i*3+1]=b.color[1]; col[i*3+2]=b.color[2]; }
-    gl.bindBuffer(gl.ARRAY_BUFFER, posBuf); gl.bufferData(gl.ARRAY_BUFFER, pos.subarray(0, n*3), gl.DYNAMIC_DRAW);
-    gl.bindBuffer(gl.ARRAY_BUFFER, colBuf); gl.bufferData(gl.ARRAY_BUFFER, col.subarray(0, n*3), gl.DYNAMIC_DRAW);
-  }
-
-  // ==== FBO setup for trails (ping‑pong) ====
-  let fboA=null, fboB=null, texA=null, texB=null, fboDirty=true;
-  function createTex(w,h){ const t=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,t); gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,null); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE); return t; }
-  function attach(t){ const f=gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER,f); gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,t,0); gl.bindFramebuffer(gl.FRAMEBUFFER,null); return f; }
-  function recreateFBOs(){
-    const w=canvas.width,h=canvas.height;
-    if(w<=0||h<=0) return;
-    if(texA) gl.deleteTexture(texA); if(texB) gl.deleteTexture(texB);
-    if(fboA) gl.deleteFramebuffer(fboA); if(fboB) gl.deleteFramebuffer(fboB);
-    texA=createTex(w,h); texB=createTex(w,h);
-    fboA=attach(texA); fboB=attach(texB);
-    // clear both
-    gl.bindFramebuffer(gl.FRAMEBUFFER,fboA); gl.clearColor(bg[0],bg[1],bg[2],1); gl.clear(gl.COLOR_BUFFER_BIT);
-    gl.bindFramebuffer(gl.FRAMEBUFFER,fboB); gl.clearColor(bg[0],bg[1],bg[2],1); gl.clear(gl.COLOR_BUFFER_BIT);
-    gl.bindFramebuffer(gl.FRAMEBUFFER,null);
-    fboDirty=false;
-  }
-
-  // ==== Sizing ====
-  function ensureSize(){
-    const dpr=Math.max(1,window.devicePixelRatio||1);
-    const rect=canvas.getBoundingClientRect();
-    const w=Math.max(2,Math.floor(rect.width*dpr));
-    const h=Math.max(2,Math.floor(rect.height*dpr));
-    if(canvas.width!==w||canvas.height!==h){
-      canvas.width=w; canvas.height=h; gl.viewport(0,0,w,h);
-      fboDirty=true;
-    }
-  }
-  function onResize(){ ensureSize(); }
-  window.addEventListener('resize', onResize);
-  ensureSize();
-  recreateFBOs();
-
-  function drawDecay(targetFBO, sourceTex, decay){
-    gl.bindFramebuffer(gl.FRAMEBUFFER, targetFBO);
-    gl.useProgram(progDecay);
-    gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
-    gl.enableVertexAttribArray(locD.a_pos); gl.vertexAttribPointer(locD.a_pos, 2, gl.FLOAT, false, 16, 0);
-    gl.enableVertexAttribArray(locD.a_uv);  gl.vertexAttribPointer(locD.a_uv,  2, gl.FLOAT, false, 16, 8);
-    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, sourceTex);
-    gl.uniform1i(locD.u_prev, 0);
-    gl.uniform3f(locD.u_bg, bg[0],bg[1],bg[2]);
-    gl.uniform1f(locD.u_decay, decay);
-    gl.disable(gl.BLEND);
-    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-  }
-
-  function blitToScreen(tex){
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    gl.useProgram(progBlit);
-    gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
-    gl.enableVertexAttribArray(locB.a_pos); gl.vertexAttribPointer(locB.a_pos, 2, gl.FLOAT, false, 16, 0);
-    gl.enableVertexAttribArray(locB.a_uv);  gl.vertexAttribPointer(locB.a_uv,  2, gl.FLOAT, false, 16, 8);
-    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tex);
-    gl.uniform1i(locB.u_tex, 0);
-    gl.disable(gl.BLEND);
-    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-  }
-
-  function renderStars(targetFBO, size, additive){
-    gl.bindFramebuffer(gl.FRAMEBUFFER, targetFBO);
-    const mvp = cameraMVP();
-    gl.useProgram(progPoints);
-    gl.uniformMatrix4fv(locP.u_mvp,false,new Float32Array(mvp));
-    gl.uniform1f(locP.u_pointSize, size);
-
-    gl.bindBuffer(gl.ARRAY_BUFFER, posBuf);
-    gl.enableVertexAttribArray(locP.a_pos);
-    gl.vertexAttribPointer(locP.a_pos, 3, gl.FLOAT, false, 0, 0);
-    gl.bindBuffer(gl.ARRAY_BUFFER, colBuf);
-    gl.enableVertexAttribArray(locP.a_col);
-    gl.vertexAttribPointer(locP.a_col, 3, gl.FLOAT, false, 0, 0);
-
-    gl.enable(gl.BLEND);
-    if(additive){ gl.blendFunc(gl.ONE, gl.ONE); } else { gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); }
-    gl.drawArrays(gl.POINTS, 0, world.bodies.length);
-  }
-
   function render(){
-    if(fboDirty) recreateFBOs();
+    ensureSize();
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.useProgram(prog);
+    const mvp=cameraMVP();
+    gl.uniformMatrix4fv(loc.u_mvp,false,mvp);
+    gl.uniform1f(loc.u_pointSize, parseFloat(ctl.radius.value)||4);
+    gl.uniform1i(loc.u_glow, ctl.glow.checked?1:0);
 
-    const mode=ctl.trails.value;
-    if(mode==='off'){
-      gl.bindFramebuffer(gl.FRAMEBUFFER,null);
-      gl.clearColor(bg[0],bg[1],bg[2],1); gl.clear(gl.COLOR_BUFFER_BIT);
-      if(ctl.glow.checked){ const gs=(2.0+parseFloat(ctl.glowStrength.value||'1.0')); renderStars(null, (parseFloat(ctl.radius.value)||4)*gs, true); }
-      renderStars(null, (parseFloat(ctl.radius.value)||4), false);
-      return;
-    }
-    let decay = parseFloat(ctl.trailAlpha.value||'0.02');
-    if(mode==='short') decay = Math.max(decay,0.10);
-    else if(mode==='long') decay = Math.min(Math.max(decay,0.04),0.08);
-    else if(mode==='ultra') decay = Math.min(decay,0.03);
-
-    // 1) decay previous into A from B
-    drawDecay(fboA, texB, decay);
-    // 2) draw stars into A
-    if(ctl.glow.checked){ const gs=(2.0+parseFloat(ctl.glowStrength.value||'1.0')); renderStars(fboA, (parseFloat(ctl.radius.value)||4)*gs, true); }
-    renderStars(fboA, (parseFloat(ctl.radius.value)||4), false);
-    // optional test dot
-    if(ctl.testDot.checked){
-      const pos1=new Float32Array([0,0,0]); const col1=new Float32Array([1,1,1]);
-      gl.bindBuffer(gl.ARRAY_BUFFER, posBuf); gl.bufferData(gl.ARRAY_BUFFER, pos1, gl.DYNAMIC_DRAW);
-      gl.bindBuffer(gl.ARRAY_BUFFER, colBuf); gl.bufferData(gl.ARRAY_BUFFER, col1, gl.DYNAMIC_DRAW);
-      renderStars(fboA, 28.0, false);
-      uploadBuffers();
-    }
-    // 3) blit A to screen
-    blitToScreen(texA);
-    // 4) swap A/B
-    const tT=texA; texA=texB; texB=tT; const tF=fboA; fboA=fboB; fboB=tF;
+    gl.bindBuffer(gl.ARRAY_BUFFER, posBuf); gl.enableVertexAttribArray(loc.a_pos); gl.vertexAttribPointer(loc.a_pos,3,gl.FLOAT,false,0,0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, colBuf); gl.enableVertexAttribArray(loc.a_col); gl.vertexAttribPointer(loc.a_col,3,gl.FLOAT,false,0,0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, sizeBuf); gl.enableVertexAttribArray(loc.a_size); gl.vertexAttribPointer(loc.a_size,1,gl.FLOAT,false,0,0);
+    gl.drawArrays(gl.POINTS, 0, bodies.length);
   }
 
-  // ==== Camera ====
-  (function cameraControls(){
+  // Camera & controls
+  (function controls(){
+    const c=world.cam;
     const state={down:false, right:false, lastX:0,lastY:0};
-    canvas.addEventListener('mousedown',e=>{ state.down=true; state.right=(e.button===2); state.lastX=e.clientX; state.lastY=e.clientY; e.preventDefault(); });
+    function updateTxt(){ ctl.camTxt.textContent = `${(c.azimuth*180/Math.PI)|0}° / ${(c.elevation*180/Math.PI)|0}° / ${c.distance.toFixed(2)}`; }
+    canvas.addEventListener('mousedown',e=>{ state.down=true; state.right=(e.button===2)||e.shiftKey; state.lastX=e.clientX; state.lastY=e.clientY; e.preventDefault(); });
     window.addEventListener('mouseup',()=>{ state.down=false; });
     window.addEventListener('mousemove',e=>{
       if(!state.down) return;
       const dx=e.clientX-state.lastX, dy=e.clientY-state.lastY; state.lastX=e.clientX; state.lastY=e.clientY;
-      if(state.right || e.shiftKey){ world.cam.panX -= dx*0.001*world.cam.distance; world.cam.panY += dy*0.001*world.cam.distance; }
-      else { world.cam.azimuth += dx*0.005; world.cam.elevation = Math.max(-Math.PI/2+0.01, Math.min(Math.PI/2-0.01, world.cam.elevation+dy*0.005)); }
-      ctl.camTxt.textContent = `${(world.cam.azimuth*180/Math.PI)|0}° / ${(world.cam.elevation*180/Math.PI)|0}° / ${world.cam.distance.toFixed(2)}`;
+      if(state.right){ c.panX -= dx*0.001*c.distance; c.panY += dy*0.001*c.distance; }
+      else { c.azimuth += dx*0.005; c.elevation = Math.max(-Math.PI/2+0.01, Math.min(Math.PI/2-0.01, c.elevation+dy*0.005)); }
+      updateTxt();
     });
-    canvas.addEventListener('wheel',e=>{ e.preventDefault(); world.cam.distance = Math.max(0.5, Math.min(50, world.cam.distance * Math.exp(e.deltaY*0.001))); ctl.camTxt.textContent = `${(world.cam.azimuth*180/Math.PI)|0}° / ${(world.cam.elevation*180/Math.PI)|0}° / ${world.cam.distance.toFixed(2)}`; }, {passive:false});
-    canvas.addEventListener('dblclick',()=>{ world.cam={ azimuth:0.4, elevation:0.35, distance:4.2, panX:0, panY:0 }; ctl.camTxt.textContent = `${(world.cam.azimuth*180/Math.PI)|0}° / ${(world.cam.elevation*180/Math.PI)|0}° / ${world.cam.distance.toFixed(2)}`; });
+    canvas.addEventListener('wheel',e=>{ e.preventDefault(); c.distance = Math.max(0.5, Math.min(300, c.distance * Math.exp(e.deltaY*0.001))); updateTxt(); }, {passive:false});
+    canvas.addEventListener('dblclick',()=>{ c.azimuth=0.4; c.elevation=0.35; c.distance=fitDistance(); c.panX=0; c.panY=0; updateTxt(); });
     canvas.addEventListener('contextmenu',e=>e.preventDefault());
-    ctl.camTxt.textContent = `${(world.cam.azimuth*180/Math.PI)|0}° / ${(world.cam.elevation*180/Math.PI)|0}° / ${world.cam.distance.toFixed(2)}`;
+    updateTxt();
   })();
 
-  // ==== Stats ====
-  function computeEnergy(){ const G=parseFloat(ctl.G.value)||1, eps2=Math.pow(parseFloat(ctl.eps.value)||0.02,2); let K=0,U=0; const b=world.bodies; for(const p of b){ K += 0.5*p.m*(p.vx*p.vx+p.vy*p.vy+p.vz*p.vz); } for(let i=0;i<b.length;i++){ for(let j=i+1;j<b.length;j++){ const dx=b[j].x-b[i].x, dy=b[j].y-b[i].y, dz=b[j].z-b[i].z; const r=Math.sqrt(dx*dx+dy*dy+dz*dz+eps2); U += -G*b[i].m*b[j].m/r; } } ctl.statE.textContent=(K+U).toFixed(3); }
+  function computeBounds(){
+    if(!bodies.length) return {r:1,cx:0,cy:0,cz:0};
+    let cx=0,cy=0,cz=0; for(const p of bodies){ cx+=p.x; cy+=p.y; cz+=p.z; } cx/=bodies.length; cy/=bodies.length; cz/=bodies.length;
+    let r=0; for(const p of bodies){ const dx=p.x-cx, dy=p.y-cy, dz=p.z-cz; const d=Math.sqrt(dx*dx+dy*dy+dz*dz); if(d>r) r=d; }
+    return {r:Math.max(0.1,r), cx, cy, cz};
+  }
+  function fitDistance(){ const {r}=computeBounds(); const fovy=50*Math.PI/180; const margin=1.3; return r*margin/Math.tan(fovy/2)+0.5; }
+  function autoFit(){ const {cx,cy}=computeBounds(); world.cam.distance = fitDistance(); world.cam.panX=cx; world.cam.panY=-cy; }
 
-  // ==== Sizing & loop ====
-  function reset(){
-    world.preset = ctl.preset.value;
-    const n=parseInt(ctl.nBodies.value,10)||1200;
-    const mMin=parseFloat(ctl.mMin.value)||0.3, mMax=parseFloat(ctl.mMax.value)||2.5, radius=parseFloat(ctl.spawnR.value)||0.9;
-    world.bodies = createBodies(n,{mMin,mMax,radius,preset:world.preset});
-    computeAccelerations(world.bodies, parseFloat(ctl.G.value)||1, Math.pow(parseFloat(ctl.eps.value)||0.02,2));
-    world.step=0;
-    uploadBuffers();
-    overlay.textContent='Running… (Space to pause)';
-    log(`${VERSION} — Reset: preset=${world.preset} bodies=${world.bodies.length}`);
+  // Loop
+  function loop(){
+    requestAnimationFrame(loop);
+    if(!world.paused){ stepSystem(); if(world.step%2===0) uploadBuffers(); }
+    render();
   }
 
-  function startLoop(){
-    let last=(window.performance&&performance.now)?performance.now():Date.now(), acc=0, frames=0;
-    function tick(t){
-      const now=(t!==undefined)?t:((window.performance&&performance.now)?performance.now():Date.now());
-      const dt=now-last; last=now;
-      if(!world.paused){ stepSystem(); if(world.step%4===0){ computeEnergy(); uploadBuffers(); } }
-      render();
-      frames++; acc+=dt; if(acc>=500){ ctl.statFPS.textContent = String(Math.round(frames/(acc/1000))); frames=0; acc=0; }
-      ctl.statStep.textContent=String(world.step);
-      window.requestAnimationFrame(tick);
-    }
-    window.requestAnimationFrame(tick);
-  }
-
-  // Wiring
+  // Wire UI
   ctl.btnStart.addEventListener('click',()=>{ world.paused=false; overlay.textContent='Running… (Space to pause)'; });
   ctl.btnPause.addEventListener('click',()=>{ world.paused=!world.paused; overlay.textContent = world.paused?'Paused (Space to resume)':'Running… (Space to pause)'; ctl.btnPause.textContent = world.paused?'⏵ Resume':'⏸ Pause'; });
-  ctl.btnReset.addEventListener('click',reset);
-  window.addEventListener('keydown',e=>{ if(e.code==='Space'){ e.preventDefault(); ctl.btnPause.click(); } });
-
-  ['preset','nBodies','seed','mMin','mMax','spawnR','G','dt','eps'].forEach(id=>$(id).addEventListener('change', reset));
-  ['speed','radius','trails','trailAlpha','glow','glowStrength','testDot'].forEach(id=>$(id).addEventListener('input', ()=>{}));
+  ctl.btnReset.addEventListener('click',()=>{ createCloud(); overlay.textContent='Running… (Space to pause)'; });
+  ctl.btnFit.addEventListener('click',autoFit);
+  window.addEventListener('keydown',e=>{ if(e.code==='Space'){ e.preventDefault(); ctl.btnPause.click(); } if(e.key==='a'||e.key==='A'){ autoFit(); }});
+  ['nBodies','seed','mMin','mMax','spawnR','G','dt','eps','cloudStill'].forEach(id=>$(id).addEventListener('change', createCloud));
+  ['speed','radius','glow'].forEach(id=>$(id).addEventListener('input', ()=>{}));
 
   // Boot
-  reset();
-  startLoop();
+  createCloud();
+  loop();
+  log(VERSION+' — Ready.');
 })();
 </script>
 </body>
