@@ -537,6 +537,7 @@ function updateMetrics(dt) {
     `Collision: ${params.collisionMode}`,
     `Softening ε: ${params.softening}`,
     `Glow: ${params.glow?`On (${params.glowIntensity.toFixed(1)})`:'Off'}`,
+    `Version: v1.0.0`,
   ].join('\\n');
   $('metrics').textContent = txt;
 }
