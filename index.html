@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>N-Body Playground by Steve Cullen and ChatGPT (v2.0.3)</title>
+<title>N-Body Playground by Steve Cullen and ChatGPT (v2.0.5)</title>
 <style>
   html, body { margin:0; height:100%; background:#0b0f16; color:#e6eef8; font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; }
   #topbar { position:fixed; top:0; left:0; right:0; display:flex; align-items:center; gap:16px; padding:10px 12px; background:#0d1628; border-bottom:1px solid #1a2b4a; z-index:20; }
@@ -38,7 +38,7 @@
 </head>
 <body>
 <div id="topbar">
-  <div id="title">N-Body Playground by Steve Cullen and ChatGPT (v2.0.3)</div>
+  <div id="title">N-Body Playground by Steve Cullen and ChatGPT (v2.0.5)</div>
   <div id="status">Booting…</div>
 </div>
 
@@ -116,274 +116,202 @@
 </div>
 
 <script>
-// Boot/diagnostics & dynamic loader
+// Global error reporting to status line
+window.addEventListener('error', (e) => {
+  const s = document.getElementById('status');
+  s.textContent = '❌ JS Error: ' + (e.message || e.error || e);
+  s.style.color = '#ff7b7b';
+});
+
+// Boot/diagnostics & loader
 (function(){
   const statusEl = document.getElementById('status');
   function setStatus(msg, err){ statusEl.textContent = msg; statusEl.style.color = err ? '#ff7b7b' : ''; }
   function webglOK(){ const c=document.createElement('canvas'); const gl=c.getContext('webgl')||c.getContext('experimental-webgl'); return !!gl; }
   if(!webglOK()){ setStatus('❌ WebGL not supported'); return; }
   setStatus('✅ WebGL OK — loading Three.js…');
-  function load(u){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=u; s.onload=()=>res(u); s.onerror=()=>rej(u); document.head.appendChild(s); }); }
-  load('https://unpkg.com/three@0.150.1/build/three.min.js')
-  .then(()=>{ setStatus('✅ Three.js loaded — loading TrackballControls…'); } ).then(()=>{ setStatus('✅ Controls loaded — initializing…'); THREE=window.THREE; 
-// Inlined TrackballControls (Three.js r136)
-THREE.TrackballControls = function ( object, domElement ) {
-  var _this = this;
-  var STATE = { NONE: - 1, ROTATE: 0, ZOOM: 1, PAN: 2, TOUCH_ROTATE: 3, TOUCH_ZOOM_PAN: 4 };
-  this.object = object;
-  this.domElement = ( domElement !== undefined ) ? domElement : document;
-  this.enabled = true;
-  this.screen = { left: 0, top: 0, width: 0, height: 0 };
-  this.rotateSpeed = 1.0;
-  this.zoomSpeed = 1.2;
-  this.panSpeed = 0.3;
-  this.noRotate = false;
-  this.noZoom = false;
-  this.noPan = false;
-  this.staticMoving = false;
-  this.dynamicDampingFactor = 0.2;
-  this.minDistance = 0;
-  this.maxDistance = Infinity;
-  this.keys = [ 65, 83, 68 ];
-  this.target = new THREE.Vector3();
-  var EPS = 0.000001;
-  var lastPosition = new THREE.Vector3();
-  var lastZoom = 1;
-  var _state = STATE.NONE,
-    _prevState = STATE.NONE,
-    _eye = new THREE.Vector3(),
-    _movePrev = new THREE.Vector2(),
-    _moveCurr = new THREE.Vector2(),
-    _lastAxis = new THREE.Vector3(),
-    _lastAngle = 0,
-    _zoomStart = new THREE.Vector2(),
-    _zoomEnd = new THREE.Vector2(),
-    _touchZoomDistanceStart = 0,
-    _touchZoomDistanceEnd = 0,
-    _panStart = new THREE.Vector2(),
-    _panEnd = new THREE.Vector2();
-  this.handleResize = function () {
-    if ( this.domElement === document ) {
-      this.screen.left = 0;
-      this.screen.top = 0;
-      this.screen.width = window.innerWidth;
-      this.screen.height = window.innerHeight;
-    } else {
-      var box = this.domElement.getBoundingClientRect();
-      var d = this.domElement.ownerDocument.documentElement;
-      this.screen.left = box.left + window.pageXOffset - d.clientLeft;
-      this.screen.top = box.top + window.pageYOffset - d.clientTop;
-      this.screen.width = box.width;
-      this.screen.height = box.height;
+
+  const cdns = [
+    'https://cdnjs.cloudflare.com/ajax/libs/three.js/r150/three.min.js',
+    'https://cdn.jsdelivr.net/npm/three@0.150.1/build/three.min.js',
+    'https://unpkg.com/three@0.150.1/build/three.min.js'
+  ];
+  function loadScript(url){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=url; s.onload=()=>res(url); s.onerror=()=>rej(url); document.head.appendChild(s); }); }
+  (async function loadThree(){
+    for (let i=0;i<cdns.length;i++) {
+      try { await loadScript(cdns[i]); setStatus('✅ Three.js loaded from '+cdns[i]); return init(); }
+      catch(e) { /* try next */ }
     }
-  };
-  var getMouseOnScreen = ( function () {
-    var vector = new THREE.Vector2();
-    return function getMouseOnScreen( pageX, pageY ) {
-      vector.set(
-        ( pageX - _this.screen.left ) / _this.screen.width,
-        ( pageY - _this.screen.top ) / _this.screen.height
-      );
-      return vector;
-    };
-  }() );
-  var getMouseOnCircle = ( function () {
-    var vector = new THREE.Vector2();
-    return function getMouseOnCircle( pageX, pageY ) {
-      vector.set(
-        ( ( pageX - _this.screen.width * 0.5 - _this.screen.left ) / (_this.screen.width*0.5) ),
-        ( ( _this.screen.height + 2 * ( _this.screen.top - pageY ) ) / _this.screen.width )
-      );
-      return vector;
-    };
-  }() );
-  this.rotateCamera = ( function () {
-    var axis = new THREE.Vector3(),
-      quaternion = new THREE.Quaternion(),
-      eyeDirection = new THREE.Vector3(),
-      objectUpDirection = new THREE.Vector3(),
-      objectSidewaysDirection = new THREE.Vector3(),
-      moveDirection = new THREE.Vector3(),
-      angle;
-    return function rotateCamera() {
-      moveDirection.set( _moveCurr.x - _movePrev.x, _moveCurr.y - _movePrev.y, 0 );
-      angle = moveDirection.length();
-      if ( angle ) {
-        _eye.copy( _this.object.position ).sub( _this.target );
-        eyeDirection.copy( _eye ).normalize();
-        objectUpDirection.copy( _this.object.up ).normalize();
-        objectSidewaysDirection.crossVectors( objectUpDirection, eyeDirection ).normalize();
-        objectUpDirection.setLength( _moveCurr.y - _movePrev.y );
-        objectSidewaysDirection.setLength( _moveCurr.x - _movePrev.x );
-        moveDirection.copy( objectUpDirection.add( objectSidewaysDirection ) );
-        axis.crossVectors( moveDirection, _eye ).normalize();
-        angle *= _this.rotateSpeed;
-        quaternion.setFromAxisAngle( axis, angle );
-        _eye.applyQuaternion( quaternion );
-        _this.object.up.applyQuaternion( quaternion );
-        _lastAxis.copy( axis );
-        _lastAngle = angle;
-      } else if ( !_this.staticMoving && _lastAngle ) {
-        _lastAngle *= Math.sqrt( 1.0 - _this.dynamicDampingFactor );
-        _eye.copy( _this.object.position ).sub( _this.target );
-        quaternion.setFromAxisAngle( _lastAxis, _lastAngle );
-        _eye.applyQuaternion( quaternion );
-        _this.object.up.applyQuaternion( quaternion );
+    setStatus('❌ Failed to load Three.js from all CDNs', true);
+  })();
+
+  function init(){
+    // Inline TrackballControls (compact orbit-like implementation)
+    (function(){ 
+      const TWO_PI = Math.PI*2;
+      function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
+      function TrackballControls(camera, dom) {
+        this.object = camera; this.domElement = dom||document;
+        this.target = new THREE.Vector3();
+        this.rotateSpeed = 1.0; this.zoomSpeed = 1.2; this.panSpeed = 0.8;
+        this.staticMoving = true; this.dynamicDampingFactor = 0.2;
+        let state = 'none', startX=0, startY=0;
+        let sphR = camera.position.distanceTo(this.target);
+        let sphPhi = Math.acos((camera.position.y-this.target.y)/sphR);
+        let sphTheta = Math.atan2(camera.position.x-this.target.x, camera.position.z-this.target.z);
+        const onDown = (e)=>{ e.preventDefault(); startX=e.clientX; startY=e.clientY; state = (e.button===2)?'pan':'rotate'; };
+        const onMove = (e)=>{ if(state==='none') return; const dx=e.clientX-startX, dy=e.clientY-startY; startX=e.clientX; startY=e.clientY;
+          if(state==='rotate'){ sphTheta -= dx*0.005*this.rotateSpeed; sphPhi += dy*0.005*this.rotateSpeed; sphPhi = clamp(sphPhi, 0.001, Math.PI-0.001); } 
+          else if(state==='pan'){ const pan = new THREE.Vector3(); const m = new THREE.Matrix4().lookAt(this.object.position, this.target, new THREE.Vector3(0,1,0)); const xAxis=new THREE.Vector3(1,0,0).applyMatrix4(m).sub(this.object.position).normalize(); const yAxis=new THREE.Vector3(0,1,0).applyMatrix4(m).sub(this.object.position).normalize(); pan.addScaledVector(xAxis, -dx*0.002*this.panSpeed*sphR); pan.addScaledVector(yAxis,  dy*0.002*this.panSpeed*sphR); this.target.add(pan); } 
+        };
+        const onUp = ()=>{ state='none'; };
+        const onWheel = (e)=>{ e.preventDefault(); const f = Math.exp((e.deltaY>0?1:-1)*0.1*this.zoomSpeed); sphR = clamp(sphR*f, 0.1, 1e6); };
+        this.update = ()=>{ const x = this.target.x + sphR*Math.sin(sphTheta)*Math.sin(sphPhi); const y = this.target.y + sphR*Math.cos(sphPhi); const z = this.target.z + sphR*Math.cos(sphTheta)*Math.sin(sphPhi); this.object.position.set(x,y,z); this.object.lookAt(this.target); };
+        this.dispose = ()=>{ this.domElement.removeEventListener('mousedown', onDown); this.domElement.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); this.domElement.removeEventListener('wheel', onWheel); };
+        this.domElement.addEventListener('contextmenu', e=>e.preventDefault());
+        this.domElement.addEventListener('mousedown', onDown);
+        this.domElement.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+        this.domElement.addEventListener('wheel', onWheel, { passive:false });
       }
-      _movePrev.copy( _moveCurr );
-    };
-  }() );
-  this.zoomCamera = function () {
-    var factor;
-    if ( _state === STATE.TOUCH_ZOOM_PAN ) {
-      factor = _touchZoomDistanceStart / _touchZoomDistanceEnd;
-      _touchZoomDistanceStart = _touchZoomDistanceEnd;
-      _eye.multiplyScalar( factor );
-    } else {
-      factor = 1.0 + ( _zoomEnd.y - _zoomStart.y ) * _this.zoomSpeed;
-      if ( factor !== 1.0 && factor > 0.0 ) {
-        _eye.multiplyScalar( factor );
-        if ( _this.staticMoving ) {
-          _zoomStart.copy( _zoomEnd );
-        } else {
-          _zoomStart.y += ( _zoomEnd.y - _zoomStart.y ) * this.dynamicDampingFactor;
-        }
-      }
-    }
-  };
-  this.panCamera = ( function () {
-    var mouseChange = new THREE.Vector2(),
-      objectUp = new THREE.Vector3(),
-      pan = new THREE.Vector3();
-    return function panCamera() {
-      mouseChange.copy( _panEnd ).sub( _panStart );
-      if ( mouseChange.lengthSq() ) {
-        mouseChange.multiplyScalar( _eye.length() * _this.panSpeed );
-        pan.copy( _eye ).cross( _this.object.up ).setLength( mouseChange.x );
-        pan.add( objectUp.copy( _this.object.up ).setLength( mouseChange.y ) );
-        _this.object.position.add( pan );
-        _this.target.add( pan );
-        if ( _this.staticMoving ) {
-          _panStart.copy( _panEnd );
-        } else {
-          _panStart.add( mouseChange.subVectors( _panEnd, _panStart ).multiplyScalar( _this.dynamicDampingFactor ) );
-        }
-      }
-    };
-  }() );
-  this.update = function () {
-    _eye.subVectors( _this.object.position, _this.target );
-    if ( !_this.noRotate ) { _this.rotateCamera(); }
-    if ( !_this.noZoom ) { _this.zoomCamera(); }
-    if ( !_this.noPan ) { _this.panCamera(); }
-    _this.object.position.addVectors( _this.target, _eye );
-    _this.object.lookAt( _this.target );
-  };
-  function keydown( event ) { if ( _this.enabled === false ) return; _prevState = _state; if ( _state !== STATE.NONE ) { return; } else if ( event.keyCode === _this.keys[ STATE.ROTATE ] ) { _state = STATE.ROTATE; } else if ( event.keyCode === _this.keys[ STATE.ZOOM ] ) { _state = STATE.ZOOM; } else if ( event.keyCode === _this.keys[ STATE.PAN ] ) { _state = STATE.PAN; } }
-  function keyup( event ) { if ( _this.enabled === false ) return; _state = _prevState; }
-  this.domElement.addEventListener( 'contextmenu', function ( event ) { event.preventDefault(); }, false );
-  this.domElement.addEventListener( 'mousedown', function ( event ) { if ( _this.enabled === false ) return; event.preventDefault(); event.stopPropagation(); if ( _state === STATE.NONE ) { _state = event.button; } _moveCurr.copy( getMouseOnCircle( event.pageX, event.pageY ) ); _movePrev.copy( _moveCurr ); document.addEventListener( 'mousemove', mousemove, false ); document.addEventListener( 'mouseup', mouseup, false ); }, false );
-  function mousemove( event ) { if ( _this.enabled === false ) return; event.preventDefault(); event.stopPropagation(); _movePrev.copy( _moveCurr ); _moveCurr.copy( getMouseOnCircle( event.pageX, event.pageY ) ); }
-  function mouseup( event ) { if ( _this.enabled === false ) return; event.preventDefault(); event.stopPropagation(); _state = STATE.NONE; document.removeEventListener( 'mousemove', mousemove ); document.removeEventListener( 'mouseup', mouseup ); }
-};
- startApp(); })
-  .then(()=>{ setStatus('✅ Controls loaded — initializing…'); startApp(); })
-  .catch(u=>{ setStatus('⚠️ Failed to load: '+u, true); });
-  
-  function startApp(){
-    const AU=1.496e11, MSUN=1.989e30, G=6.67430e-11;
-    const $ = id=>document.getElementById(id);
-    const state = {
-      n: parseInt($('nStars').value,10),
-      radiusAU: parseFloat($('radiusAU').value),
-      initV_kms: parseFloat($('initV').value),
-      mMinMSun: parseFloat($('mMin').value),
-      mMaxMSun: parseFloat($('mMax').value),
-      softening: parseFloat($('softening').value),
-      collisionMode: $('collisionMode').value,
-      trailSeconds: parseFloat($('trailSeconds').value),
-      glow: $('glowMode').value==='on',
-      glowIntensity: parseFloat($('glowIntensity').value),
-      running:false, timeScale:1500, subDt:0.02
-    };
-    let centralMass = parseFloat($('mCentral').value)*MSUN;
+      THREE.TrackballControls = TrackballControls;
+    })();
 
-    function link(rangeId, numId, cb){ const r=$(rangeId), n=$(numId); function sync(fr){ if(fr) n.value=r.value; else r.value=n.value; cb(parseFloat(r.value)); } r.addEventListener('input',()=>sync(true)); n.addEventListener('input',()=>sync(false)); sync(true); }
-    link('nStars','nStarsNum', v=>state.n=v|0);
-    link('radiusAU','radiusAUNum', v=>state.radiusAU=v);
-    link('initV','initVNum', v=>state.initV_kms=v);
-    link('mMin','mMinNum', v=>state.mMinMSun=v);
-    link('mMax','mMaxNum', v=>state.mMaxMSun=v);
-    link('softening','softeningNum', v=>state.softening=v);
-    $('collisionMode').addEventListener('change', e=>state.collisionMode=e.target.value);
-    $('trailPreset').addEventListener('change', e=>{ const map={none:0,short:6,long:20,ultra:45}; const v=map[e.target.value]; $('trailSeconds').value=v; $('trailSecondsNum').value=v; state.trailSeconds=v; });
-    $('glowMode').addEventListener('change', e=>{ state.glow = e.target.value==='on'; });
-    $('glowIntensity').addEventListener('input', e=>{ state.glowIntensity=parseFloat(e.target.value); });
-    link('mCentral','mCentralNum', v=>{ centralMass=v*MSUN; updateCentral(); });
-    $('btnStart').onclick=()=>state.running=true;
-    $('btnPause').onclick=()=>state.running=false;
-    $('btnReset').onclick=()=>resetSystem();
-    $('btnAutoFit').onclick=()=>autoFit();
-    $('btnClear').onclick=()=>clearTrails();
-
-    const scene=new THREE.Scene(); scene.background=new THREE.Color(0x0b0f16);
-    const vpEl=$('viewport');
-    const camera=new THREE.PerspectiveCamera(55,1,0.01,5000); camera.position.set(12,10,18);
-    const renderer=new THREE.WebGLRenderer({antialias:true}); vpEl.appendChild(renderer.domElement);
-    const controls=new THREE.TrackballControls(camera, renderer.domElement);
-    controls.rotateSpeed=3; controls.zoomSpeed=1.2; controls.panSpeed=0.8; controls.staticMoving=true; controls.dynamicDampingFactor=0.2;
-
-    const trailCanvas=$('trailCanvas'); const trailCtx=trailCanvas.getContext('2d');
-    const chartCanvas=$('chart'); const chartCtx=chartCanvas.getContext('2d'); let chartData=[]; const chartMaxPoints=600;
-
-    function resizeAll(){ const w=vpEl.clientWidth||1, h=vpEl.clientHeight||1; renderer.setSize(w,h,false); camera.aspect=w/h; camera.updateProjectionMatrix(); trailCanvas.width=w; trailCanvas.height=h; const dpr=Math.min(devicePixelRatio,2); const chartW=520, chartH=140; chartCanvas.width=chartW*dpr; chartCanvas.height=chartH*dpr; chartCanvas.style.width=chartW+'px'; chartCanvas.style.height=chartH+'px'; }
-    window.addEventListener('resize', resizeAll); resizeAll();
-
-    (function(){ const geo=new THREE.BufferGeometry(); const N=1000, arr=new Float32Array(N*3); for(let i=0;i<N;i++){ const r=1200,t=Math.random()*Math.PI*2,p=Math.acos(2*Math.random()-1); arr[3*i]=r*Math.sin(p)*Math.cos(t); arr[3*i+1]=r*Math.sin(p)*Math.sin(t); arr[3*i+2]=r*Math.cos(p);} geo.setAttribute('position',new THREE.BufferAttribute(arr,3)); const mat=new THREE.PointsMaterial({size:1.5,color:0x6fa3ff}); scene.add(new THREE.Points(geo,mat)); })();
-
-    function centralRadiusAU(mkg){ const RSun=6.9634e8; const r=RSun*Math.pow(mkg/MSUN,0.8); return (r/AU)*20; }
-    const cMat=new THREE.MeshBasicMaterial({color:0xffd27a});
-    let central=new THREE.Mesh(new THREE.SphereGeometry(centralRadiusAU(centralMass), 24, 18), cMat); scene.add(central);
-    function makeGlowSprite(size){ const c=document.createElement('canvas'); c.width=c.height=256; const ctx=c.getContext('2d'); const g=ctx.createRadialGradient(128,128,0,128,128,128); g.addColorStop(0,'rgba(255,220,180,1)'); g.addColorStop(1,'rgba(255,220,180,0)'); ctx.fillStyle=g; ctx.fillRect(0,0,256,256); const tex=new THREE.CanvasTexture(c); const mat=new THREE.SpriteMaterial({map:tex, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, opacity: state.glow?state.glowIntensity:0}); const spr=new THREE.Sprite(mat); spr.scale.set(size,size,1); return spr; }
-    let centralHalo=makeGlowSprite(10); scene.add(centralHalo);
-    function updateCentral(){ const r=centralRadiusAU(centralMass); central.geometry.dispose(); central.geometry=new THREE.SphereGeometry(r,24,18); centralHalo.material.opacity = state.glow?state.glowIntensity:0; centralHalo.scale.setScalar(1+8*state.glowIntensity); }
-
-    function starRadiusFromMass(mkg){ const RSun=6.9634e8; const r=RSun*Math.pow(mkg/MSUN,0.8); return (r/AU)*12; }
-    function massToHex(mSun){ const t=Math.max(0,Math.min(1,(Math.log10(mSun+1e-6)+6)/6)); const r=255,g=Math.floor(180+60*t),b=Math.floor(120+135*(1-t)); return (r<<16)|(g<<8)|b; }
-    let bodies=[];
-
-    function resetSystem(){ for(const b of bodies) scene.remove(b.mesh); bodies.length=0; chartData.length=0; clearTrails(); updateCentral(); const R=state.radiusAU*AU;
-      for(let i=0;i<state.n;i++){ let x,y,z; do{ x=(Math.random()*2-1)*R; y=(Math.random()*2-1)*R; z=(Math.random()*2-1)*R; }while(x*x+y*y+z*z>R*R);
-        const pos=new THREE.Vector3(x,y,z); const m=THREE.MathUtils.lerp(state.mMinMSun,state.mMaxMSun,Math.random())*MSUN; const r=Math.max(starRadiusFromMass(m),0.002*AU);
-        const mesh=new THREE.Mesh(new THREE.SphereGeometry(r,12,8), new THREE.MeshBasicMaterial({color:massToHex(m/MSUN)}));
-        mesh.position.copy(pos.clone().divideScalar(AU)); scene.add(mesh);
-        let vel=new THREE.Vector3(); const v0=state.initV_kms*1000; if(v0!==0){ const nrm=pos.clone().normalize(); let a=new THREE.Vector3(nrm.y,-nrm.x,0).normalize(); vel=a.multiplyScalar(v0); }
-        bodies.push({pos,vel,mass:m,radius:r,mesh});
-      } autoFit(); }
-
-    function autoFit(){ const dist=Math.max(8,state.radiusAU*3); camera.position.set(dist,dist*0.8,dist*1.2); controls.target.set(0,0,0); controls.update(); }
-    function clearTrails(){ trailCtx.clearRect(0,0,trailCanvas.width, trailCanvas.height); }
-
-    function handleElastic(a,b){ const n=b.pos.clone().sub(a.pos).normalize(); const va=a.vel.dot(n), vb=b.vel.dot(n); const ma=a.mass, mb=b.mass; const va2=(va*(ma-mb)+2*mb*vb)/(ma+mb); const vb2=(vb*(mb-ma)+2*ma*va)/(ma+mb); a.vel.addScaledVector(n,va2-va); b.vel.addScaledVector(n,vb2-vb); }
-    function handleMerge(i,j){ const a=bodies[i], b=bodies[j]; const m=a.mass+b.mass; const v=a.vel.clone().multiplyScalar(a.mass).add(b.vel.clone().multiplyScalar(b.mass)).divideScalar(m); const pos=a.pos.clone().add(b.pos).multiplyScalar(0.5); a.mass=m; a.vel=v; a.pos=pos; a.radius=starRadiusFromMass(m); a.mesh.geometry.dispose(); a.mesh.geometry=new THREE.SphereGeometry(a.radius,12,8); a.mesh.material.color.setHex(massToHex(m/MSUN)); scene.remove(b.mesh); bodies.splice(j,1); }
-
-    function stepPhysics(h){ const eps2=(state.softening*AU)**2; for(let i=0;i<bodies.length;i++){ const b=bodies[i]; const r=b.pos.length(); const aMag=-G*centralMass/(r*r+eps2); const nrm=r>0? b.pos.clone().divideScalar(r): new THREE.Vector3(); b.vel.addScaledVector(nrm,aMag*h); b.pos.addScaledVector(b.vel,h); const cR=central.geometry.parameters.radius*AU; if(r<cR){ const normal=b.pos.clone().normalize(); const vn=normal.multiplyScalar(b.vel.dot(normal)); const vt=b.vel.clone().sub(vn); b.vel.copy(vt.sub(vn)); b.pos.copy(normal.multiplyScalar(cR*1.01)); } b.mesh.position.copy(b.pos.clone().divideScalar(AU)); }
-      if(state.collisionMode!=='none'){ for(let i=0;i<bodies.length;i++) for(let j=i+1;j<bodies.length;j++){ const bi=bodies[i], bj=bodies[j]; const d=bi.pos.distanceTo(bj.pos); if(d<bi.radius + bj.radius){ if(state.collisionMode==='elastic') handleElastic(bi,bj); else if(state.collisionMode==='merge'){ handleMerge(i,j); j--; } } } } }
-
-    function sampleEnergy(){ let K=0,U=0; const eps2=(state.softening*AU)**2; for(const b of bodies){ K += 0.5*b.mass*b.vel.lengthSq(); const r=b.pos.length(); U += -G*centralMass*b.mass/Math.sqrt(r*r+eps2); } chartData.push({K,U,T:K+U}); if(chartData.length>chartMaxPoints) chartData.shift(); }
-    function drawChart(){ const dpr=Math.min(devicePixelRatio,2); const w=chartCanvas.width, h=chartCanvas.height; chartCtx.clearRect(0,0,w,h); if(chartData.length<2) return; const K=chartData.map(d=>d.K), U=chartData.map(d=>d.U), T=chartData.map(d=>d.T); const minY=Math.min(...K,...U,...T), maxY=Math.max(...K,...U,...T); const pad=10*dpr; const xStep=(w-2*pad)/(chartData.length-1); const mapY=v=> h - pad - (v-minY)/(maxY-minY+1e-9)*(h-2*pad); function series(a,c){ chartCtx.beginPath(); chartCtx.lineWidth=2*dpr; chartCtx.strokeStyle=c; chartCtx.moveTo(pad,mapY(a[0])); for(let i=1;i<a.length;i++) chartCtx.lineTo(pad+i*xStep,mapY(a[i])); chartCtx.stroke(); } series(K,'#6fc2ff'); series(U,'#f6d06f'); series(T,'#a9f56f'); }
-
-    function renderTrails(dt){ const w=trailCanvas.width,h=trailCanvas.height; if(state.trailSeconds<=0){ trailCtx.clearRect(0,0,w,h); return; } const decay=Math.max(0,1 - dt*(1/state.trailSeconds)); trailCtx.globalCompositeOperation='source-over'; trailCtx.fillStyle='rgba(13,19,34,'+(1-decay)+')'; trailCtx.fillRect(0,0,w,h); trailCtx.globalCompositeOperation='lighter'; const v3=new THREE.Vector3(); for(const b of bodies){ v3.copy(b.mesh.position).project(camera); const x=(v3.x*0.5+0.5)*w; const y=(-v3.y*0.5+0.5)*h; trailCtx.fillStyle='rgba(180,200,255,'+(0.4+0.6*state.glowIntensity)+')'; trailCtx.fillRect(x,y,1.5,1.5); } }
-
-    function updateMetrics(){ const n=bodies.length; const avgR = n? bodies.reduce((s,b)=>s+b.pos.length(),0)/n : 0; const avgV = n? bodies.reduce((s,b)=>s+b.vel.length(),0)/n : 0; $('metrics').textContent=[ 'Version: v2.0.3', 'Renderer: '+(renderer.capabilities.isWebGL2?'WebGL2':'WebGL1'), 'Bodies: '+n, 'Central Mass: '+(centralMass/MSUN).toFixed(3)+' M\u2609', 'Avg radius: '+(avgR/AU).toFixed(3)+' AU', 'Avg speed: '+(avgV/1000).toFixed(3)+' km/s', 'Collision: '+state.collisionMode, 'Softening ε: '+state.softening.toFixed(3), 'Glow: '+(state.glow?('On ('+state.glowIntensity.toFixed(2)+')'):'Off') ].join('\n'); }
-
-    resetSystem(); autoFit();
-    let last=performance.now();
-    function loop(){ requestAnimationFrame(loop); const now=performance.now(); const dt=Math.max(0,(now-last)/1000); last=now; if(state.running){ const sim=dt*state.timeScale; const steps=Math.max(1,Math.ceil(sim/state.subDt)); const h=sim/steps; for(let s=0;s<steps;s++) stepPhysics(h); sampleEnergy(); } controls.update(); renderer.render(scene,camera); renderTrails(dt); drawChart(); updateMetrics(); centralHalo.position.set(0,0,0); centralHalo.material.opacity = state.glow?state.glowIntensity:0; }
-    loop();
-
-    setStatus('✅ Ready — hit Start');
+    setStatus('✅ Controls ready — initializing simulation…');
+    startApp();
   }
+})();
+</script>
+
+<script>
+// ===== Simulation (same as earlier, using THREE.TrackballControls) =====
+(function(){
+  const AU = 1.496e11, MSUN = 1.989e30, G = 6.67430e-11;
+
+  const state = {
+    n: 800,
+    radiusAU: 6,
+    initV_kms: 0,
+    mMinMSun: 5e-5,
+    mMaxMSun: 1e-3,
+    softening: 0.01,
+    collisionMode: 'none',
+    trailSeconds: 20,
+    glow: true,
+    glowIntensity: 0.6,
+    running: false,
+    timeScale: 1500,
+    subDt: 0.02
+  };
+
+  const chartCanvas = document.getElementById('chart');
+  const chartCtx = chartCanvas.getContext('2d');
+  let chartData = []; const chartMaxPoints=600;
+
+  const trailCanvas = document.getElementById('trailCanvas');
+  const trailCtx = trailCanvas.getContext('2d');
+
+  const $ = (id)=>document.getElementById(id);
+  function link(rangeId, numId, cb){ const r=$(rangeId), n=$(numId); function sync(fr){ if(fr) n.value=r.value; else r.value=n.value; cb(parseFloat(r.value)); } r.addEventListener('input',()=>sync(true)); n.addEventListener('input',()=>sync(false)); sync(true); }
+  link('nStars','nStarsNum', v=>state.n=v|0);
+  link('radiusAU','radiusAUNum', v=>state.radiusAU=v);
+  link('initV','initVNum', v=>state.initV_kms=v);
+  link('mMin','mMinNum', v=>state.mMinMSun=v);
+  link('mMax','mMaxNum', v=>state.mMaxMSun=v);
+  link('softening','softeningNum', v=>state.softening=v);
+  $('collisionMode').addEventListener('change', e=>state.collisionMode=e.target.value);
+  $('trailPreset').addEventListener('change', e=>{ const map={none:0,short:6,long:20,ultra:45}; const v=map[e.target.value]; $('trailSeconds').value=v; $('trailSecondsNum').value=v; state.trailSeconds=v; });
+  $('glowMode').addEventListener('change', e=>{ state.glow = e.target.value==='on'; });
+  $('glowIntensity').addEventListener('input', e=>{ state.glowIntensity = parseFloat(e.target.value); });
+
+  let centralMass = 1*MSUN;
+  link('mCentral','mCentralNum', v=>{ centralMass = v*MSUN; updateCentral(); });
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0b0f16);
+  const vpEl = document.getElementById('viewport');
+  const camera = new THREE.PerspectiveCamera(55, 1, 0.01, 5000); camera.position.set(12,10,18);
+  const renderer = new THREE.WebGLRenderer({ antialias:true }); vpEl.appendChild(renderer.domElement);
+  const controls = new THREE.TrackballControls(camera, renderer.domElement);
+  controls.rotateSpeed=3; controls.zoomSpeed=1.2; controls.panSpeed=0.8;
+
+  function resizeAll(){ const w=vpEl.clientWidth||1,h=vpEl.clientHeight||1; renderer.setSize(w,h,false); camera.aspect=w/h; camera.updateProjectionMatrix();
+    trailCanvas.width=w; trailCanvas.height=h; const dpr=Math.min(devicePixelRatio,2); const chartW=520, chartH=140; chartCanvas.width=chartW*dpr; chartCanvas.height=chartH*dpr; chartCanvas.style.width=chartW+'px'; chartCanvas.style.height=chartH+'px'; }
+  window.addEventListener('resize', resizeAll); resizeAll();
+
+  // Backdrop stars
+  (()=>{ const geo=new THREE.BufferGeometry(); const N=1000, arr=new Float32Array(N*3);
+    for(let i=0;i<N;i++){ const r=1200, t=Math.random()*Math.PI*2, p=Math.acos(2*Math.random()-1); arr[3*i]=r*Math.sin(p)*Math.cos(t); arr[3*i+1]=r*Math.sin(p)*Math.sin(t); arr[3*i+2]=r*Math.cos(p);}
+    geo.setAttribute('position', new THREE.BufferAttribute(arr,3)); const mat=new THREE.PointsMaterial({ size:1.5, color:0x6fa3ff }); scene.add(new THREE.Points(geo,mat)); })();
+
+  // Central star + glow sprite
+  function centralRadiusAU(mkg){ const RSun=6.9634e8; const r=RSun*Math.pow(mkg/MSUN,0.8); return (r/AU)*20; }
+  const cMat = new THREE.MeshBasicMaterial({ color:0xffd27a });
+  let central = new THREE.Mesh(new THREE.SphereGeometry(centralRadiusAU(centralMass),24,18), cMat); scene.add(central);
+
+  function makeGlowSprite(size, opacity){ const c=document.createElement('canvas'); c.width=c.height=256; const ctx=c.getContext('2d'); const g=ctx.createRadialGradient(128,128,0,128,128,128); g.addColorStop(0,'rgba(255,220,180,1)'); g.addColorStop(1,'rgba(255,220,180,0)'); ctx.fillStyle=g; ctx.fillRect(0,0,256,256); const tex=new THREE.CanvasTexture(c); const mat=new THREE.SpriteMaterial({map:tex, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, opacity}); const spr=new THREE.Sprite(mat); spr.scale.set(size,size,1); return spr; }
+  let centralHalo = makeGlowSprite(10, 0.6); scene.add(centralHalo);
+
+  function updateCentral(){ const r=centralRadiusAU(centralMass); central.geometry.dispose(); central.geometry=new THREE.SphereGeometry(r,24,18); centralHalo.material.opacity = state.glow?state.glowIntensity:0; centralHalo.scale.setScalar(1+8*state.glowIntensity); }
+
+  // Bodies
+  let bodies = [];
+  function starRadiusFromMass(mkg){ const RSun=6.9634e8; const r=RSun*Math.pow(mkg/MSUN,0.8); return (r/AU)*12; }
+  function massToHex(mSun){ const t=Math.max(0,Math.min(1,(Math.log10(mSun+1e-6)+6)/6)); const r=255,g=Math.floor(180+60*t),b=Math.floor(120+135*(1-t)); return (r<<16)|(g<<8)|b; }
+
+  function resetSystem(){
+    for(const b of bodies) scene.remove(b.mesh);
+    bodies.length=0; chartData.length=0; clearTrails(); updateCentral();
+    const R = state.radiusAU*AU;
+    for(let i=0;i<state.n;i++){ let x,y,z; do{ x=(Math.random()*2-1)*R; y=(Math.random()*2-1)*R; z=(Math.random()*2-1)*R; }while(x*x+y*y+z*z>R*R);
+      const pos=new THREE.Vector3(x,y,z);
+      const m=THREE.MathUtils.lerp(state.mMinMSun,state.mMaxMSun,Math.random())*MSUN;
+      const r=Math.max(starRadiusFromMass(m), 0.002*AU);
+      const mesh=new THREE.Mesh(new THREE.SphereGeometry(r,12,8), new THREE.MeshBasicMaterial({ color: massToHex(m/MSUN) }));
+      mesh.position.copy(pos.clone().divideScalar(AU)); scene.add(mesh);
+      let vel=new THREE.Vector3(); const v0=state.initV_kms*1000; if(v0!==0){ const nrm=pos.clone().normalize(); let a=new THREE.Vector3(nrm.y,-nrm.x,0).normalize(); vel=a.multiplyScalar(v0); }
+      bodies.push({ pos, vel, mass:m, radius:r, mesh });
+    }
+    autoFit();
+  }
+
+  function autoFit(){ const dist=Math.max(8,state.radiusAU*3); camera.position.set(dist,dist*0.8,dist*1.2); controls.target.set(0,0,0); controls.update(); }
+  function clearTrails(){ trailCtx.clearRect(0,0,trailCanvas.width, trailCanvas.height); }
+
+  function handleElastic(a,b){ const n=b.pos.clone().sub(a.pos).normalize(); const va=a.vel.dot(n), vb=b.vel.dot(n); const ma=a.mass, mb=b.mass; const va2=(va*(ma-mb)+2*mb*vb)/(ma+mb); const vb2=(vb*(mb-ma)+2*ma*va)/(ma+mb); a.vel.addScaledVector(n,va2-va); b.vel.addScaledVector(n,vb2-vb); }
+  function handleMerge(i,j){ const a=bodies[i], b=bodies[j]; const m=a.mass+b.mass; const v=a.vel.clone().multiplyScalar(a.mass).add(b.vel.clone().multiplyScalar(b.mass)).divideScalar(m); const pos=a.pos.clone().add(b.pos).multiplyScalar(0.5); a.mass=m; a.vel=v; a.pos=pos; a.radius=starRadiusFromMass(m); a.mesh.geometry.dispose(); a.mesh.geometry=new THREE.SphereGeometry(a.radius,12,8); a.mesh.material.color.setHex(massToHex(m/MSUN)); scene.remove(b.mesh); bodies.splice(j,1); }
+
+  function stepPhysics(h){ const eps2=(state.softening*AU)**2; for(let i=0;i<bodies.length;i++){ const b=bodies[i]; const r=b.pos.length(); const aMag=-G*centralMass/(r*r+eps2); const nrm=r>0? b.pos.clone().divideScalar(r): new THREE.Vector3(); b.vel.addScaledVector(nrm,aMag*h); b.pos.addScaledVector(b.vel,h); const cR=central.geometry.parameters.radius*AU; if(r<cR){ const normal=b.pos.clone().normalize(); const vn=normal.multiplyScalar(b.vel.dot(normal)); const vt=b.vel.clone().sub(vn); b.vel.copy(vt.sub(vn)); b.pos.copy(normal.multiplyScalar(cR*1.01)); } const pAU=b.pos.clone().divideScalar(AU); b.mesh.position.copy(pAU); } if(state.collisionMode!=='none'){ for(let i=0;i<bodies.length;i++) for(let j=i+1;j<bodies.length;j++){ const bi=bodies[i], bj=bodies[j]; const d=bi.pos.distanceTo(bj.pos); if(d<bi.radius + bj.radius){ if(state.collisionMode==='elastic') handleElastic(bi,bj); else if(state.collisionMode==='merge'){ handleMerge(i,j); j--; } } } }
+
+  function sampleEnergy(){ let K=0,U=0; const eps2=(state.softening*AU)**2; for(const b of bodies){ K += 0.5*b.mass*b.vel.lengthSq(); const r=b.pos.length(); U += -G*centralMass*b.mass/Math.sqrt(r*r+eps2); } chartData.push({K,U,T:K+U}); if(chartData.length>chartMaxPoints) chartData.shift(); }
+  function drawChart(){ const dpr=Math.min(devicePixelRatio,2); const w=chartCanvas.width,h=chartCanvas.height; chartCtx.clearRect(0,0,w,h); if(chartData.length<2) return; const K=chartData.map(d=>d.K), U=chartData.map(d=>d.U), T=chartData.map(d=>d.T); const minY=Math.min(...K,...U,...T), maxY=Math.max(...K,...U,...T); const pad=10*dpr; const xStep=(w-2*pad)/(chartData.length-1); const mapY=v=> h - pad - (v-minY)/(maxY-minY+1e-9)*(h-2*pad); function series(arr, col){ chartCtx.beginPath(); chartCtx.lineWidth=2*dpr; chartCtx.strokeStyle=col; chartCtx.moveTo(pad,mapY(arr[0])); for(let i=1;i<arr.length;i++) chartCtx.lineTo(pad+i*xStep,mapY(arr[i])); chartCtx.stroke(); } series(K,'#6fc2ff'); series(U,'#f6d06f'); series(T,'#a9f56f'); }
+
+  function renderTrails(dt){ const w=trailCanvas.width,h=trailCanvas.height; if(state.trailSeconds<=0){ trailCtx.clearRect(0,0,w,h); return; } const decay=Math.max(0,1 - dt*(1/state.trailSeconds)); trailCtx.globalCompositeOperation='source-over'; trailCtx.fillStyle='rgba(13,19,34,'+(1-decay)+')'; trailCtx.fillRect(0,0,w,h); trailCtx.globalCompositeOperation='lighter'; const v3=new THREE.Vector3(); for(const b of bodies){ v3.copy(b.mesh.position).project(camera); const x=(v3.x*0.5+0.5)*w; const y=(-v3.y*0.5+0.5)*h; trailCtx.fillStyle='rgba(180,200,255,'+(0.4+0.6*state.glowIntensity)+')'; trailCtx.fillRect(x,y,1.5,1.5); } }
+
+  function updateMetrics(){ const n=bodies.length; const avgR=n? bodies.reduce((s,b)=>s+b.pos.length(),0)/n : 0; const avgV=n? bodies.reduce((s,b)=>s+b.vel.length(),0)/n : 0;
+    document.getElementById('metrics').textContent = [
+      'Version: v2.0.5',
+      'Renderer: '+(renderer.capabilities.isWebGL2?'WebGL2':'WebGL1'),
+      'Bodies: '+n,
+      'Central Mass: '+(centralMass/MSUN).toFixed(3)+' M\u2609',
+      'Avg radius: '+(avgR/AU).toFixed(3)+' AU',
+      'Avg speed: '+(avgV/1000).toFixed(3)+' km/s',
+      'Collision: '+state.collisionMode,
+      'Softening ε: '+state.softening.toFixed(3),
+      'Glow: '+(document.getElementById('glowMode').value==='on' ? ('On ('+document.getElementById('glowIntensity').value+')') : 'Off')
+    ].join('\n'); }
+
+  // Controls
+  document.getElementById('btnStart').onclick = () => state.running = true;
+  document.getElementById('btnPause').onclick = () => state.running = false;
+  document.getElementById('btnReset').onclick = () => resetSystem();
+  document.getElementById('btnAutoFit').onclick = () => autoFit();
+  document.getElementById('btnClear').onclick = () => clearTrails();
+
+  resetSystem();
+  let last = performance.now();
+  function animate(){ requestAnimationFrame(animate); const now=performance.now(), dt=Math.max(0,(now-last)/1000); last=now; if(state.running){ const sim=dt*state.timeScale; const steps=Math.max(1,Math.ceil(sim/state.subDt)); const h=sim/steps; for(let s=0;s<steps;s++) stepPhysics(h); sampleEnergy(); } controls.update(); renderer.render(scene,camera); renderTrails(dt); drawChart(); updateMetrics(); centralHalo.position.set(0,0,0); centralHalo.material.opacity = (document.getElementById('glowMode').value==='on')? parseFloat(document.getElementById('glowIntensity').value) : 0; }
+  animate();
 })();
 </script>
 </body>
