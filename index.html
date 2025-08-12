@@ -3,385 +3,201 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>N‑Body Playground by Steve Cullen and ChatGPT (v1.1.1)</title>
+<title>N‑Body Playground by Steve Cullen and ChatGPT (v1.2.2-legacy)</title>
 <style>
   html, body { margin:0; height:100%; overflow:hidden; background:#0b0f16; color:#e6eef8; font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; }
-  #app { position:fixed; inset:0; display:grid; grid-template-columns:320px 1fr 360px; grid-template-rows:100%; }
-  #left, #right { background:#0e1320; border-right:1px solid #1a2235; }
-  #right { border-left:1px solid #1a2235; border-right:none; }
-  #viewport { position:relative; }
-  .panel { padding:14px; overflow:auto; }
-  h2 { margin:6px 0 10px; font-size:16px; letter-spacing:.3px; color:#b9d2ff }
-  .group { margin:10px 0 18px; padding:10px; background:#0b1120; border:1px solid #1a2235; border-radius:8px; }
-  .row { display:grid; grid-template-columns:1fr 90px; gap:10px; align-items:center; margin:6px 0; }
-  .row label { font-size:13px; color:#cfe0ff; }
-  .row input[type="range"] { width:100%; }
-  .row input[type="number"], .row select { width:100%; padding:6px; background:#0f1526; border:1px solid #28365a; color:#e6eef8; border-radius:6px; }
-  .buttons { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
-  button { padding:8px 10px; border-radius:8px; border:1px solid #33466f; background:#13203a; color:#e6eef8; cursor:pointer; }
-  button.primary { border-color:#4a83ff; background:#1a2f5c; }
-  .hint { font-size:12px; color:#9fb4db; margin-top:6px; }
-  #chartWrap { position:absolute; left:12px; bottom:12px; width:520px; background:#0d1322c0; border:1px solid #1a2235; border-radius:8px; padding:8px; backdrop-filter: blur(4px); }
-  #chart { width:100%; height:140px; display:block; background:#0c111d; border-radius:6px; }
-  #legend { display:flex; gap:12px; font-size:12px; margin:6px 2px 0; color:#c9d8f4; opacity:.9; }
-  #legend span::before { content:""; display:inline-block; width:10px; height:10px; margin-right:6px; border-radius:2px; vertical-align:baseline; }
-  #legK::before { background:#6fc2ff; }
-  #legU::before { background:#f6d06f; }
-  #legT::before { background:#a9f56f; }
-  #metrics { font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size:12px; line-height:1.35; white-space:pre-wrap; }
+  #status { position:fixed; top:8px; left:8px; background:#0f1a2e; border:1px solid #213357; padding:6px 8px; border-radius:6px; white-space:pre; font:12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; z-index:10; }
+  #metrics { position:fixed; bottom:8px; left:8px; background:#0f1a2e; border:1px solid #213357; padding:6px 8px; border-radius:6px; white-space:pre; font:12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; z-index:10; }
   canvas { display:block; }
-  .status { font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:12px; white-space:pre-wrap; padding:6px 8px; border-radius:6px; background:#0f1a2e; border:1px solid #213357; margin-bottom:10px; color:#cfe0ff; }
+  #ui { position:fixed; right:8px; top:8px; background:#0f1a2e; border:1px solid #213357; padding:8px; border-radius:8px; z-index:10; }
+  #ui label { display:block; font-size:12px; margin:6px 0 2px; }
+  #ui input { width:200px; }
+  #ui button { margin-top:8px; width:100%; padding:6px; }
 </style>
 </head>
 <body>
-<div id="app">
-  <div id="left" class="panel">
-    <div class="status" id="status">Booting…</div>
-    <h2>Setup</h2>
-    <div class="group">
-      <div class="row"><label>Stars (N)</label><input id="nStars" type="range" min="50" max="5000" step="50" value="800"><input id="nStarsNum" type="number" min="50" max="5000" step="50" value="800"></div>
-      <div class="row"><label>Init radius (AU)</label><input id="radiusAU" type="range" min="0.1" max="50" step="0.1" value="5"><input id="radiusAUNum" type="number" min="0.1" max="50" step="0.1" value="5"></div>
-      <div class="row"><label>Init velocity (km/s)</label><input id="initV" type="range" min="0" max="80" step="1" value="0"><input id="initVNum" type="number" min="0" max="80" step="1" value="0"></div>
-      <div class="row"><label>Star mass min (M☉)</label><input id="mMin" type="range" min="1e-6" max="1" step="1e-6" value="5e-5"><input id="mMinNum" type="number" step="1e-6" value="5e-5"></div>
-      <div class="row"><label>Star mass max (M☉)</label><input id="mMax" type="range" min="1e-6" max="5" step="1e-6" value="1e-3"><input id="mMaxNum" type="number" step="1e-6" value="1e-3"></div>
-    </div>
-
-    <h2>Central Star</h2>
-    <div class="group">
-      <div class="row"><label>Mass (M☉)</label><input id="mCentral" type="range" min="0.1" max="50" step="0.1" value="1"><input id="mCentralNum" type="number" min="0.1" max="50" step="0.1" value="1"></div>
-      <div class="row"><label>Glow</label>
-        <select id="glowMode"><option value="off">Off</option><option value="on" selected>On</option></select>
-        <input id="glowIntensity" type="range" min="0" max="6" step="0.1" value="2.5">
-      </div>
-    </div>
-
-    <h2>Collisions</h2>
-    <div class="group">
-      <div class="row"><label>Collision mode</label>
-        <select id="collisionMode">
-          <option value="none" selected>None</option>
-          <option value="elastic">Elastic</option>
-          <option value="merge">Merge</option>
-        </select>
-      </div>
-      <div class="row"><label>Softening (ε)</label><input id="softening" type="range" min="0" max="0.2" step="0.001" value="0.01"><input id="softeningNum" type="number" min="0" max="0.2" step="0.001" value="0.01"></div>
-    </div>
-
-    <h2>Trails</h2>
-    <div class="group">
-      <div class="row"><label>Preset</label>
-        <select id="trailPreset">
-          <option value="none">None</option>
-          <option value="short">Short</option>
-          <option value="long" selected>Long</option>
-          <option value="ultra">Ultra</option>
-        </select>
-      </div>
-      <div class="row"><label>Persistence (s)</label><input id="trailSeconds" type="range" min="0" max="60" step="1" value="20"><input id="trailSecondsNum" type="number" min="0" max="60" step="1" value="20"></div>
-    </div>
-
-    <div class="buttons">
-      <button id="btnReset">Reset</button>
-      <button id="btnStart" class="primary">Start</button>
-      <button id="btnPause">Pause</button>
-      <button id="btnClear">Clear Trails</button>
-      <button id="btnAutoFit">Auto Fit</button>
-    </div>
-
-    <div class="hint">Trackball: drag=rotate, right‑drag=pan, wheel=zoom.</div>
-  </div>
-
-  <div id="viewport"></div>
-
-  <div id="right" class="panel">
-    <h2>Metrics</h2>
-    <div class="group"><div id="metrics">—</div></div>
-    <h2>Energy</h2>
-    <div class="group">
-      <canvas id="chart"></canvas>
-      <div id="legend"><span id="legK">Kinetic</span><span id="legU">Potential</span><span id="legT">Total</span></div>
-    </div>
-  </div>
+<div id="status">Booting…</div>
+<div id="metrics">—</div>
+<div id="ui">
+  <label>Stars (N)</label>
+  <input id="nStars" type="range" min="50" max="3000" step="50" value="600">
+  <label>Init radius (AU)</label>
+  <input id="radiusAU" type="range" min="0.2" max="30" step="0.1" value="5">
+  <label>Init velocity (km/s)</label>
+  <input id="initV" type="range" min="0" max="60" step="1" value="0">
+  <label>Central mass (M☉)</label>
+  <input id="mCentral" type="range" min="0.2" max="20" step="0.1" value="1">
+  <button id="btnReset">Reset</button>
+  <button id="btnStart">Start</button>
+  <button id="btnPause">Pause</button>
 </div>
 
-<div id="chartWrap"><canvas id="chartOverlay"></canvas></div>
-
+<!-- UMD builds to avoid module resolution issues -->
+<script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+<script src="https://unpkg.com/three@0.160.0/examples/js/controls/TrackballControls.js"></script>
 <script>
-// ---- Boot / WebGL diagnostics ----
 (function() {
   const statusEl = document.getElementById('status');
   function webglInfo() {
     const canvas = document.createElement('canvas');
     const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
     if (!gl) return { ok:false, msg:'WebGL not supported' };
-    const dbg = gl.getExtension('WEBGL_debug_renderer_info');
-    const vendor = dbg ? gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL) : gl.getParameter(gl.VENDOR);
-    const renderer = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+    const dbg = gl.getExtension('WEBGL_debug_renderer_INFO') || gl.getExtension('WEBGL_debug_renderer_info');
+    let vendor=null, renderer=null;
+    try {
+      vendor = dbg ? gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL) : gl.getParameter(gl.VENDOR);
+      renderer = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+    } catch(e) { vendor='n/a'; renderer='n/a'; }
     return { ok:true, msg:'WebGL OK', vendor, renderer, version: gl.getParameter(gl.VERSION) };
   }
   const boot = webglInfo();
   statusEl.textContent = boot.ok
-    ? `Booting… WebGL OK\nVendor: ${boot.vendor}\nRenderer: ${boot.renderer}\nVersion: ${boot.version}`
-    : `Booting… WebGL FAILED: ${boot.msg}`;
+    ? 'Booting… WebGL OK\nVendor: '+boot.vendor+'\nRenderer: '+boot.renderer+'\nVersion: '+boot.version
+    : 'Booting… WebGL FAILED: '+boot.msg;
+})();
+</script>
 
-  // Dynamic imports so we can catch and show errors
-  Promise.all([
-    import('https://unpkg.com/three@0.160.0/build/three.module.js'),
-    import('https://unpkg.com/three@0.160.0/examples/jsm/controls/TrackballControls.js'),
-    import('https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/EffectComposer.js'),
-    import('https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/RenderPass.js'),
-    import('https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/UnrealBloomPass.js')
-  ]).then(([THREE, Ctls, FX, RP, Bloom]) => {
-    // main app in a closure
-    (function() {
-      // ---- Constants & Units ----
-      const AU = 1.496e11, MSUN = 1.989e30, G = 6.67430e-11;
+<script>
+// Minimal but working N-body (central mass only) — legacy build
+(function() {
+  const AU = 1.496e11, MSUN = 1.989e30, G = 6.67430e-11;
 
-      // ---- State ----
-      let scene, camera, renderer, controls, composer, bloomPass;
-      let central, centralMass = 1 * MSUN;
-      let bodies = [];
-      let running = false;
-      let lastT = 0;
-      let timeScale = 2000;
-      let dtSub = 0.02;
+  const params = {
+    n: 600,
+    radiusAU: 5,
+    initV_kms: 0,
+    mCentral: 1,
+    softening: 0.01
+  };
 
-      // UI params
-      let params = {
-        n: 800, radiusAU: 5, initV_kms: 0,
-        mMinMSun: 5e-5, mMaxMSun: 1e-3,
-        softening: 0.01, collisionMode:'none',
-        trailSeconds: 20, glow:true, glowIntensity:2.5
-      };
+  const $ = (id)=>document.getElementById(id);
+  $('nStars').addEventListener('input', e=> params.n = parseInt(e.target.value,10));
+  $('radiusAU').addEventListener('input', e=> params.radiusAU = parseFloat(e.target.value));
+  $('initV').addEventListener('input', e=> params.initV_kms = parseFloat(e.target.value));
+  $('mCentral').addEventListener('input', e=> { params.mCentral = parseFloat(e.target.value); centralMass = params.mCentral * MSUN; resizeCentral(); });
 
-      // Energy chart
-      const chartCanvas = document.getElementById('chart');
-      const chartCtx = chartCanvas.getContext('2d');
-      let chartData = [];
-      let chartMaxPoints = 600;
-      const overlay = document.getElementById('chartOverlay').getContext('2d');
+  let scene, camera, renderer, controls, central, bodies=[], running=false, lastT=0;
+  let centralMass = params.mCentral * MSUN;
 
-      const $ = (id)=>document.getElementById(id);
-      function link(rangeId, numId, cb) {
-        const r = $(rangeId), n = $(numId);
-        function sync(fromRange) { if (fromRange) n.value=r.value; else r.value=n.value; cb(parseFloat(r.value)); }
-        r.addEventListener('input', ()=>sync(true)); n.addEventListener('input', ()=>sync(false)); sync(true);
-      }
-      link('nStars','nStarsNum', v=>params.n=v|0);
-      link('radiusAU','radiusAUNum', v=>params.radiusAU=v);
-      link('initV','initVNum', v=>params.initV_kms=v);
-      link('mMin','mMinNum', v=>params.mMinMSun=v);
-      link('mMax','mMaxNum', v=>params.mMaxMSun=v);
-      link('softening','softeningNum', v=>params.softening=v);
-      $('collisionMode').addEventListener('change', e=>params.collisionMode=e.target.value);
-      $('trailPreset').addEventListener('change', e=>{ const map={none:0,short:6,long:20,ultra:45}; const v=map[e.target.value]; $('trailSeconds').value=v; $('trailSecondsNum').value=v; params.trailSeconds=v; });
-      $('glowMode').addEventListener('change', e=>{ params.glow = e.target.value==='on'; if (bloomPass) bloomPass.strength = params.glow ? params.glowIntensity : 0; });
-      $('glowIntensity').addEventListener('input', e=>{ params.glowIntensity=parseFloat(e.target.value); if (bloomPass) bloomPass.strength = params.glow ? params.glowIntensity : 0; });
-      $('mCentral').addEventListener('input', e=>{ centralMass = parseFloat(e.target.value) * MSUN; updateCentralAppearance(); $('mCentralNum').value=e.target.value; });
-      $('mCentralNum').addEventListener('input', e=>{ centralMass = parseFloat(e.target.value) * MSUN; updateCentralAppearance(); $('mCentral').value=e.target.value; });
+  // Boot scene
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0b0f16);
+  camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.01, 5000);
+  camera.position.set(12, 10, 18);
 
-      $('btnReset').addEventListener('click', resetSimulation);
-      $('btnStart').addEventListener('click', ()=>running=true);
-      $('btnPause').addEventListener('click', ()=>running=false);
-      $('btnClear').addEventListener('click', clearTrails);
-      $('btnAutoFit').addEventListener('click', autoFitCamera);
+  renderer = new THREE.WebGLRenderer({ antialias:true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  document.body.appendChild(renderer.domElement);
 
-      init3D();
-      resetSimulation();
-      animate();
+  controls = new THREE.TrackballControls(camera, renderer.domElement);
+  controls.rotateSpeed=3; controls.zoomSpeed=1.2; controls.panSpeed=0.8; controls.staticMoving=true; controls.dynamicDampingFactor=0.2;
 
-      function init3D() {
-        const vp = document.getElementById('viewport');
-        scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x0b0f16);
-
-        camera = new THREE.PerspectiveCamera(55, 1, 0.01, 5000);
-        camera.position.set(12, 10, 18);
-
-        renderer = new THREE.WebGLRenderer({ antialias:true });
-        vp.appendChild(renderer.domElement);
-
-        function resize() {
-          const w = vp.clientWidth||1, h = vp.clientHeight||1;
-          renderer.setSize(w,h,false);
-          camera.aspect = w/h; camera.updateProjectionMatrix();
-          if (composer) composer.setSize(w,h);
-          const wrap = document.getElementById('chartWrap'); const dpr = Math.min(devicePixelRatio,2);
-          const width = (wrap.clientWidth||520) - 16; const height = 140;
-          chartCanvas.width = width*dpr; chartCanvas.height = height*dpr; chartCanvas.style.width=width+'px'; chartCanvas.style.height=height+'px';
-          document.getElementById('chartOverlay').width = chartCanvas.width; document.getElementById('chartOverlay').height = chartCanvas.height;
-        }
-        window.addEventListener('resize', resize); resize();
-
-        controls = new Ctls.TrackballControls(camera, renderer.domElement);
-        controls.rotateSpeed=3; controls.zoomSpeed=1.2; controls.panSpeed=0.8; controls.staticMoving=true; controls.dynamicDampingFactor=0.2;
-
-        composer = new FX.EffectComposer(renderer);
-        const rp = new RP.RenderPass(scene, camera);
-        bloomPass = new Bloom.UnrealBloomPass(new THREE.Vector2(vp.clientWidth||1, vp.clientHeight||1), params.glowIntensity, 0.8, 0.85);
-        composer.addPass(rp); composer.addPass(bloomPass);
-
-        // background stars
-        const starGeo = new THREE.BufferGeometry();
-        const starCnt = 800;
-        const starPos = new Float32Array(starCnt*3);
-        for (let i=0;i<starCnt;i++) { const r=1000, th=Math.random()*Math.PI*2, ph=Math.acos(2*Math.random()-1); starPos[3*i]=r*Math.sin(ph)*Math.cos(th); starPos[3*i+1]=r*Math.sin(ph)*Math.sin(th); starPos[3*i+2]=r*Math.cos(ph);}
-        starGeo.setAttribute('position', new THREE.BufferAttribute(starPos,3));
-        const starMat = new THREE.PointsMaterial({ size:1.5, sizeAttenuation:true, color:0x7fa6ff });
-        const stars = new THREE.Points(starGeo, starMat); scene.add(stars);
-
-        scene.add(new THREE.AmbientLight(0xffffff,0.25));
-        const d = new THREE.DirectionalLight(0xffffff,0.25); d.position.set(5,8,2); scene.add(d);
-
-        statusEl.textContent += "\nRenderer started.";
-      }
-
-      function autoFitCamera() {
-        const R = Math.max(params.radiusAU, 0.5);
-        const dist = R * 3;
-        camera.position.set(dist, dist*0.8, dist*1.2);
-        controls.target.set(0,0,0); controls.update();
-      }
-
-      function randomPointInSphere(Rm) {
-        let x,y,z; do { x=(Math.random()*2-1)*Rm; y=(Math.random()*2-1)*Rm; z=(Math.random()*2-1)*Rm; } while (x*x+y*y+z*z>Rm*Rm);
-        return new THREE.Vector3(x,y,z);
-      }
-      function randomPerp(n) { const v = new THREE.Vector3(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5); return v.cross(n).normalize(); }
-      function starRadiusFromMass(mkg) { const RSun=6.9634e8; const r = RSun*Math.pow(mkg/MSUN,0.8); return (r/AU)*20; }
-      function massToColor(mSun) { const t = THREE.MathUtils.clamp((Math.log10(mSun+1e-6)+6)/6,0,1); const r=255, g=Math.floor(180+60*t), b=Math.floor(120+135*(1-t)); return (r<<16)|(g<<8)|b; }
-
-      function resetSimulation() {
-        if (central) scene.remove(central);
-        for (const b of bodies) scene.remove(b.mesh);
-        bodies.length=0; chartData.length=0; clearTrails();
-
-        const geoC = new THREE.SphereGeometry(starRadiusFromMass(centralMass), 32,24);
-        const matC = new THREE.MeshBasicMaterial({ color:0xffd27a });
-        central = new THREE.Mesh(geoC, matC); central.position.set(0,0,0); scene.add(central);
-
-        const R = params.radiusAU * AU;
-        for (let i=0;i<params.n;i++) {
-          const pos = randomPointInSphere(R);
-          const mass = THREE.MathUtils.lerp(params.mMinMSun, params.mMaxMSun, Math.random())*MSUN;
-          const radius = Math.max(starRadiusFromMass(mass), 0.002*AU);
-          const color = massToColor(mass/MSUN);
-          const mesh = new THREE.Mesh(new THREE.SphereGeometry(radius,16,12), new THREE.MeshBasicMaterial({ color }));
-          mesh.position.copy(pos.clone().divideScalar(AU)); scene.add(mesh);
-          let vel = new THREE.Vector3();
-          const v0 = params.initV_kms*1000;
-          if (v0!==0) { const n = pos.clone().normalize(); const t = randomPerp(n); vel = t.multiplyScalar(v0); }
-          bodies.push({ pos, vel, mass, mesh, radius });
-        }
-
-        updateCentralAppearance();
-        autoFitCamera();
-        statusEl.textContent += "\nSimulation reset.";
-      }
-
-      function updateCentralAppearance() {
-        const r = starRadiusFromMass(centralMass);
-        central.geometry.dispose(); central.geometry = new THREE.SphereGeometry(r,32,24);
-        if (bloomPass) bloomPass.strength = params.glow ? params.glowIntensity : 0;
-      }
-
-      function handleElastic(a,b) {
-        const n = b.pos.clone().sub(a.pos).normalize();
-        const va = a.vel.dot(n), vb = b.vel.dot(n);
-        const ma=a.mass, mb=b.mass;
-        const va2 = (va*(ma-mb)+2*mb*vb)/(ma+mb);
-        const vb2 = (vb*(mb-ma)+2*ma*va)/(ma+mb);
-        a.vel.addScaledVector(n, va2-va); b.vel.addScaledVector(n, vb2-vb);
-      }
-      function handleMerge(i,j) {
-        const a=bodies[i], b=bodies[j];
-        const m=a.mass+b.mass; const v=a.vel.clone().multiplyScalar(a.mass).add(b.vel.clone().multiplyScalar(b.mass)).divideScalar(m);
-        a.mass=m; a.vel=v; a.pos.add(b.pos).multiplyScalar(0.5); a.radius=starRadiusFromMass(m);
-        a.mesh.geometry.dispose(); a.mesh.geometry = new THREE.SphereGeometry(a.radius,16,12);
-        a.mesh.material.color.setHex(massToColor(m/MSUN));
-        scene.remove(b.mesh); bodies.splice(j,1);
-      }
-
-      function stepPhysics(h) {
-        const eps2 = (params.softening*AU)**2;
-        for (let i=0;i<bodies.length;i++) {
-          const b=bodies[i];
-          const r = b.pos.length();
-          const n = r>0 ? b.pos.clone().divideScalar(r) : new THREE.Vector3();
-          const aMag = - G*centralMass/(r*r+eps2);
-          b.vel.addScaledVector(n, aMag*h);
-          b.pos.addScaledVector(b.vel, h);
-          const cR = central.geometry.parameters.radius*AU;
-          if (r < cR) { const normal = b.pos.clone().normalize(); const vn = normal.multiplyScalar(b.vel.dot(normal)); const vt = b.vel.clone().sub(vn); b.vel.copy(vt.sub(vn)); b.pos.copy(normal.multiplyScalar(cR*1.01)); }
-          b.mesh.position.copy(b.pos.clone().divideScalar(AU));
-        }
-        if (params.collisionMode!=='none') {
-          for (let i=0;i<bodies.length;i++) for (let j=i+1;j<bodies.length;j++) {
-            const bi=bodies[i], bj=bodies[j]; const d=bi.pos.distanceTo(bj.pos);
-            if (d < bi.radius + bj.radius) {
-              if (params.collisionMode==='elastic') handleElastic(bi,bj);
-              else if (params.collisionMode==='merge') { handleMerge(i,j); j--; }
-            }
-          }
-        }
-      }
-
-      function sampleEnergy() {
-        let K=0,U=0; const eps2=(params.softening*AU)**2;
-        for (const b of bodies) { K += 0.5*b.mass*b.vel.lengthSq(); const r=b.pos.length(); U += -G*centralMass*b.mass/Math.sqrt(r*r+eps2);}
-        chartData.push({K,U,T:K+U}); if (chartData.length>chartMaxPoints) chartData.shift();
-      }
-
-      function drawChart() {
-        const dpr = Math.min(devicePixelRatio,2); const w=chartCanvas.width, h=chartCanvas.height;
-        chartCtx.clearRect(0,0,w,h); if (chartData.length<2) return;
-        const K=chartData.map(d=>d.K), U=chartData.map(d=>d.U), T=chartData.map(d=>d.T);
-        const minY = Math.min(...K,...U,...T), maxY = Math.max(...K,...U,...T); const pad=10*dpr;
-        const xStep = (w-2*pad)/(chartData.length-1);
-        const mapY = v => h - pad - (v-minY)/(maxY-minY+1e-9)*(h-2*pad);
-        function series(arr, color) { chartCtx.beginPath(); chartCtx.lineWidth=2*dpr; chartCtx.strokeStyle=color; chartCtx.moveTo(pad,mapY(arr[0])); for (let i=1;i<arr.length;i++) chartCtx.lineTo(pad+i*xStep,mapY(arr[i])); chartCtx.stroke(); }
-        series(K,'#6fc2ff'); series(U,'#f6d06f'); series(T,'#a9f56f');
-      }
-
-      function clearTrails() { overlay.clearRect(0,0,overlay.canvas.width,overlay.canvas.height); }
-
-      function updateMetrics(dt) {
-        const n=bodies.length;
-        const avgR = n? bodies.reduce((s,b)=>s+b.pos.length(),0)/n : 0;
-        const avgV = n? bodies.reduce((s,b)=>s+b.vel.length(),0)/n : 0;
-        document.getElementById('metrics').textContent = [
-          'Renderer: ' + (renderer?.capabilities.isWebGL2 ? 'WebGL2' : 'WebGL1'),
-          'Vendor: ' + (boot.vendor||'n/a'),
-          'GPU: ' + (boot.renderer||'n/a'),
-          '—',
-          'Bodies: ' + n,
-          'Central Mass: ' + (centralMass/MSUN).toFixed(3) + ' M☉',
-          'Avg radius: ' + (avgR/AU).toFixed(3) + ' AU',
-          'Avg speed: ' + (avgV/1000).toFixed(3) + ' km/s',
-          'Collision: ' + params.collisionMode,
-          'Softening ε: ' + params.softening.toFixed(3),
-          'Glow: ' + (params.glow?('On ('+params.glowIntensity.toFixed(1)+')'):'Off'),
-        ].join('\n');
-      }
-
-      function animate() {
-        requestAnimationFrame(animate);
-        const now = performance.now(); if (!lastT) lastT=now; const dt=(now-lastT)/1000; lastT=now;
-        if (running) {
-          const sim = dt*timeScale; const steps = Math.max(1, Math.ceil(sim/dtSub)); const h = sim/steps;
-          for (let s=0;s<steps;s++) stepPhysics(h);
-          sampleEnergy();
-        }
-        controls.update();
-        composer.render();
-        drawChart();
-        updateMetrics(dt);
-      }
-    })();
-  }).catch(err => {
-    statusEl.textContent += "\nError loading modules: " + err.message;
-    console.error(err);
+  window.addEventListener('resize', ()=>{
+    camera.aspect = window.innerWidth/window.innerHeight; camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
   });
+
+  // Starfield backdrop to confirm rendering
+  const starsGeo = new THREE.BufferGeometry();
+  const starCnt = 800;
+  const starPos = new Float32Array(starCnt*3);
+  for (let i=0;i<starCnt;i++) {
+    const r=1000, th=Math.random()*Math.PI*2, ph=Math.acos(2*Math.random()-1);
+    starPos[3*i]=r*Math.sin(ph)*Math.cos(th);
+    starPos[3*i+1]=r*Math.sin(ph)*Math.sin(th);
+    starPos[3*i+2]=r*Math.cos(ph);
+  }
+  starsGeo.setAttribute('position', new THREE.BufferAttribute(starPos,3));
+  const starsMat = new THREE.PointsMaterial({ size:1.5, sizeAttenuation:true, color:0x7fa6ff });
+  scene.add(new THREE.Points(starsGeo, starsMat));
+
+  // Central star
+  function centralRadiusAU(mkg) {
+    const RSun=6.9634e8; const r=RSun*Math.pow(mkg/MSUN,0.8); return (r/AU)*20;
+  }
+  function resizeCentral() {
+    const r = centralRadiusAU(centralMass);
+    central.geometry.dispose();
+    central.geometry = new THREE.SphereGeometry(r, 24, 18);
+  }
+  const cmat = new THREE.MeshBasicMaterial({ color:0xffd27a });
+  central = new THREE.Mesh(new THREE.SphereGeometry(centralRadiusAU(centralMass), 24, 18), cmat);
+  scene.add(central);
+
+  // Reset / populate
+  function randomPointInSphere(Rm) {
+    let x,y,z; do { x=(Math.random()*2-1)*Rm; y=(Math.random()*2-1)*Rm; z=(Math.random()*2-1)*Rm; } while (x*x+y*y+z*z>Rm*Rm);
+    return new THREE.Vector3(x,y,z);
+  }
+  function randomPerp(n) { const v=new THREE.Vector3(Math.random()-0.5,Math.random()-0.5,Math.random()-0.5); return v.cross(n).normalize(); }
+  function reset() {
+    // clear old
+    for (const b of bodies) scene.remove(b.mesh);
+    bodies.length=0;
+    // populate
+    const R = params.radiusAU * AU;
+    for (let i=0;i<params.n;i++) {
+      const pos = randomPointInSphere(R);
+      const mass = 1e-4 * MSUN; // simple uniform mass for legacy demo
+      const rVis = Math.max(0.002*AU, (6.9634e8/AU)*10); // ensure visible
+      const mesh = new THREE.Mesh(new THREE.SphereGeometry(rVis, 12, 8), new THREE.MeshBasicMaterial({ color:0xffffff }));
+      mesh.position.copy(pos.clone().divideScalar(AU));
+      scene.add(mesh);
+      let vel = new THREE.Vector3();
+      const v0 = params.initV_kms*1000;
+      if (v0!==0) { const n = pos.clone().normalize(); vel = randomPerp(n).multiplyScalar(v0); }
+      bodies.push({ pos, vel, mass, mesh });
+    }
+    autoFit();
+  }
+  function autoFit() {
+    const dist = Math.max(8, params.radiusAU*3);
+    camera.position.set(dist, dist*0.8, dist*1.1);
+    controls.target.set(0,0,0); controls.update();
+  }
+  reset();
+
+  // Physics (central force only, softened)
+  function step(h) {
+    const eps2 = (0.01*AU)*(0.01*AU);
+    for (let i=0;i<bodies.length;i++) {
+      const b = bodies[i];
+      const r = b.pos.length();
+      const n = r>0 ? b.pos.clone().divideScalar(r) : new THREE.Vector3();
+      const aMag = - G*centralMass/(r*r+eps2);
+      b.vel.addScaledVector(n, aMag*h);
+      b.pos.addScaledVector(b.vel, h);
+      b.mesh.position.copy(b.pos.clone().divideScalar(AU));
+    }
+  }
+
+  // UI buttons
+  $('btnReset').addEventListener('click', reset);
+  $('btnStart').addEventListener('click', ()=> running=true);
+  $('btnPause').addEventListener('click', ()=> running=false);
+
+  // Metrics
+  const metricsEl = document.getElementById('metrics');
+  function metrics(dt) {
+    const n = bodies.length;
+    const avgR = n ? bodies.reduce((s,b)=>s+b.pos.length(),0)/n : 0;
+    const avgV = n ? bodies.reduce((s,b)=>s+b.vel.length(),0)/n : 0;
+    metricsEl.textContent = 'Bodies: '+n+'\nCentral: '+(centralMass/MSUN).toFixed(2)+' M☉\nAvg R: '+(avgR/AU).toFixed(2)+' AU\nAvg V: '+(avgV/1000).toFixed(2)+' km/s';
+  }
+
+  // Animate
+  function animate() {
+    requestAnimationFrame(animate);
+    const now = performance.now(); if (!lastT) lastT=now; const dt=(now-lastT)/1000; lastT=now;
+    if (running) {
+      const sim = dt*2000; const steps = Math.max(1, Math.ceil(sim/0.02)); const h=sim/steps;
+      for (let s=0;s<steps;s++) step(h);
+    }
+    controls.update();
+    renderer.render(scene, camera);
+    metrics(dt);
+  }
+  animate();
 })();
 </script>
 </body>
