@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>N‑Body Playground by Steve Cullen and ChatGPT (v1.1.0)</title>
+<title>N‑Body Playground by Steve Cullen and ChatGPT (v1.1.1)</title>
 <style>
   html, body { margin:0; height:100%; overflow:hidden; background:#0b0f16; color:#e6eef8; font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; }
   #app { position:fixed; inset:0; display:grid; grid-template-columns:320px 1fr 360px; grid-template-rows:100%; }
@@ -106,301 +106,283 @@
 
 <div id="chartWrap"><canvas id="chartOverlay"></canvas></div>
 
-<script type="module">
-// ---- Boot / WebGL diagnostics first ----
-function webglInfo() {
-  const canvas = document.createElement('canvas');
-  const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
-  if (!gl) return { ok:false, msg:'WebGL not supported' };
-  const dbg = gl.getExtension('WEBGL_debug_renderer_info');
-  const vendor = dbg ? gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL) : gl.getParameter(gl.VENDOR);
-  const renderer = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
-  return { ok:true, msg:'WebGL OK', vendor, renderer, version: gl.getParameter(gl.VERSION) };
-}
-const boot = webglInfo();
-const statusEl = document.getElementById('status');
-statusEl.textContent = boot.ok
-  ? `Booting… WebGL OK\nVendor: ${boot.vendor}\nRenderer: ${boot.renderer}\nVersion: ${boot.version}`
-  : `Booting… WebGL FAILED: ${boot.msg}`;
-
-// Load Three.js modules AFTER we confirm WebGL
-import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
-import { TrackballControls } from 'https://unpkg.com/three@0.160.0/examples/jsm/controls/TrackballControls.js';
-import { EffectComposer } from 'https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/EffectComposer.js';
-import { RenderPass } from 'https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/UnrealBloomPass.js';
-
-// ---- Constants & Units ----
-const AU = 1.496e11; const MSUN = 1.989e30; const G = 6.67430e-11;
-
-// ---- State ----
-let scene, camera, renderer, controls, composer, bloomPass;
-let central, centralMass = 1 * MSUN;
-let bodies = [];
-let running = false;
-let lastT = 0;
-let timeScale = 2000; // sec of sim per real sec
-let dtSub = 0.02;    // integration substep (s)
-
-// UI params
-let params = {
-  n: 800, radiusAU: 5, initV_kms: 0,
-  mMinMSun: 5e-5, mMaxMSun: 1e-3,
-  softening: 0.01, collisionMode:'none',
-  trailSeconds: 20, glow:true, glowIntensity:2.5
-};
-
-// Energy chart
-const chartCanvas = document.getElementById('chart');
-const chartCtx = chartCanvas.getContext('2d');
-let chartData = [];
-let chartMaxPoints = 600;
-const overlay = document.getElementById('chartOverlay').getContext('2d');
-
-// --- UI helpers
-const $ = (id)=>document.getElementById(id);
-function link(rangeId, numId, cb) {
-  const r = $(rangeId), n = $(numId);
-  function sync(fromRange) { if (fromRange) n.value=r.value; else r.value=n.value; cb(parseFloat(r.value)); }
-  r.addEventListener('input', ()=>sync(true)); n.addEventListener('input', ()=>sync(false)); sync(true);
-}
-link('nStars','nStarsNum', v=>params.n=v|0);
-link('radiusAU','radiusAUNum', v=>params.radiusAU=v);
-link('initV','initVNum', v=>params.initV_kms=v);
-link('mMin','mMinNum', v=>params.mMinMSun=v);
-link('mMax','mMaxNum', v=>params.mMaxMSun=v);
-link('softening','softeningNum', v=>params.softening=v);
-$('collisionMode').addEventListener('change', e=>params.collisionMode=e.target.value);
-$('trailPreset').addEventListener('change', e=>{ const map={none:0,short:6,long:20,ultra:45}; const v=map[e.target.value]; $('trailSeconds').value=v; $('trailSecondsNum').value=v; params.trailSeconds=v; });
-$('glowMode').addEventListener('change', e=>{ params.glow = e.target.value==='on'; if (bloomPass) bloomPass.strength = params.glow ? params.glowIntensity : 0; });
-$('glowIntensity').addEventListener('input', e=>{ params.glowIntensity=parseFloat(e.target.value); if (bloomPass) bloomPass.strength = params.glow ? params.glowIntensity : 0; });
-$('mCentral').addEventListener('input', e=>{ centralMass = parseFloat(e.target.value) * MSUN; updateCentralAppearance(); $('mCentralNum').value=e.target.value; });
-$('mCentralNum').addEventListener('input', e=>{ centralMass = parseFloat(e.target.value) * MSUN; updateCentralAppearance(); $('mCentral').value=e.target.value; });
-
-$('btnReset').addEventListener('click', resetSimulation);
-$('btnStart').addEventListener('click', ()=>running=true);
-$('btnPause').addEventListener('click', ()=>running=false);
-$('btnClear').addEventListener('click', clearTrails);
-$('btnAutoFit').addEventListener('click', autoFitCamera);
-
-// ---- Init 3D
-init3D();
-resetSimulation();
-animate();
-
-function init3D() {
-  // Canvas sizing uses the viewport element's box, not window
-  const vp = document.getElementById('viewport');
-  scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x0b0f16);
-
-  camera = new THREE.PerspectiveCamera(55, 1, 0.01, 5000);
-  camera.position.set(12, 10, 18);
-
-  renderer = new THREE.WebGLRenderer({ antialias:true });
-  vp.appendChild(renderer.domElement);
-
-  // Size to viewport
-  function resize() {
-    const w = vp.clientWidth||1, h = vp.clientHeight||1;
-    renderer.setSize(w,h,false);
-    camera.aspect = w/h; camera.updateProjectionMatrix();
-    if (composer) composer.setSize(w,h);
-    // chart overlays
-    const wrap = document.getElementById('chartWrap'); const dpr = Math.min(devicePixelRatio,2);
-    const width = (wrap.clientWidth||520) - 16; const height = 140;
-    chartCanvas.width = width*dpr; chartCanvas.height = height*dpr; chartCanvas.style.width=width+'px'; chartCanvas.style.height=height+'px';
-    document.getElementById('chartOverlay').width = chartCanvas.width; document.getElementById('chartOverlay').height = chartCanvas.height;
+<script>
+// ---- Boot / WebGL diagnostics ----
+(function() {
+  const statusEl = document.getElementById('status');
+  function webglInfo() {
+    const canvas = document.createElement('canvas');
+    const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+    if (!gl) return { ok:false, msg:'WebGL not supported' };
+    const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+    const vendor = dbg ? gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL) : gl.getParameter(gl.VENDOR);
+    const renderer = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+    return { ok:true, msg:'WebGL OK', vendor, renderer, version: gl.getParameter(gl.VERSION) };
   }
-  window.addEventListener('resize', resize); resize();
+  const boot = webglInfo();
+  statusEl.textContent = boot.ok
+    ? `Booting… WebGL OK\nVendor: ${boot.vendor}\nRenderer: ${boot.renderer}\nVersion: ${boot.version}`
+    : `Booting… WebGL FAILED: ${boot.msg}`;
 
-  controls = new THREE.TrackballControls(camera, renderer.domElement);
-  controls.rotateSpeed = 3; controls.zoomSpeed=1.2; controls.panSpeed=0.8; controls.staticMoving=true; controls.dynamicDampingFactor=0.2;
+  // Dynamic imports so we can catch and show errors
+  Promise.all([
+    import('https://unpkg.com/three@0.160.0/build/three.module.js'),
+    import('https://unpkg.com/three@0.160.0/examples/jsm/controls/TrackballControls.js'),
+    import('https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/EffectComposer.js'),
+    import('https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/RenderPass.js'),
+    import('https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/UnrealBloomPass.js')
+  ]).then(([THREE, Ctls, FX, RP, Bloom]) => {
+    // main app in a closure
+    (function() {
+      // ---- Constants & Units ----
+      const AU = 1.496e11, MSUN = 1.989e30, G = 6.67430e-11;
 
-  // PostFX
-  composer = new EffectComposer(renderer);
-  const rp = new RenderPass(scene, camera);
-  bloomPass = new UnrealBloomPass(new THREE.Vector2(vp.clientWidth||1, vp.clientHeight||1), params.glowIntensity, 0.8, 0.85);
-  composer.addPass(rp); composer.addPass(bloomPass);
+      // ---- State ----
+      let scene, camera, renderer, controls, composer, bloomPass;
+      let central, centralMass = 1 * MSUN;
+      let bodies = [];
+      let running = false;
+      let lastT = 0;
+      let timeScale = 2000;
+      let dtSub = 0.02;
 
-  // Simple background stars (helps confirm render)
-  const starGeo = new THREE.BufferGeometry();
-  const starCnt = 800;
-  const starPos = new Float32Array(starCnt*3);
-  for (let i=0;i<starCnt;i++) { const r=1000, th=Math.random()*Math.PI*2, ph=Math.acos(2*Math.random()-1); starPos[3*i]=r*Math.sin(ph)*Math.cos(th); starPos[3*i+1]=r*Math.sin(ph)*Math.sin(th); starPos[3*i+2]=r*Math.cos(ph);}
-  starGeo.setAttribute('position', new THREE.BufferAttribute(starPos,3));
-  const starMat = new THREE.PointsMaterial({ size:1.5, sizeAttenuation:true, color:0x7fa6ff });
-  const stars = new THREE.Points(starGeo, starMat); scene.add(stars);
+      // UI params
+      let params = {
+        n: 800, radiusAU: 5, initV_kms: 0,
+        mMinMSun: 5e-5, mMaxMSun: 1e-3,
+        softening: 0.01, collisionMode:'none',
+        trailSeconds: 20, glow:true, glowIntensity:2.5
+      };
 
-  // Ambient & directional light (emissive particles don't need much)
-  scene.add(new THREE.AmbientLight(0xffffff,0.25));
-  const d = new THREE.DirectionalLight(0xffffff,0.25); d.position.set(5,8,2); scene.add(d);
+      // Energy chart
+      const chartCanvas = document.getElementById('chart');
+      const chartCtx = chartCanvas.getContext('2d');
+      let chartData = [];
+      let chartMaxPoints = 600;
+      const overlay = document.getElementById('chartOverlay').getContext('2d');
 
-  statusEl.textContent += "\nRenderer started.";
-}
-
-function autoFitCamera() {
-  const R = Math.max(params.radiusAU, 0.5);
-  const dist = R * 3;
-  camera.position.set(dist, dist*0.8, dist*1.2);
-  controls.target.set(0,0,0);
-  controls.update();
-}
-
-function randomPointInSphere(Rm) {
-  let x,y,z; do { x=(Math.random()*2-1)*Rm; y=(Math.random()*2-1)*Rm; z=(Math.random()*2-1)*Rm; } while (x*x+y*y+z*z>Rm*Rm);
-  return new THREE.Vector3(x,y,z);
-}
-function randomPerp(n) {
-  const v = new THREE.Vector3(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5);
-  return v.cross(n).normalize();
-}
-function starRadiusFromMass(mkg) {
-  const RSun=6.9634e8; const r = RSun*Math.pow(mkg/MSUN,0.8);
-  return (r/AU)*20; // visual scale
-}
-function massToColor(mSun) {
-  const t = THREE.MathUtils.clamp((Math.log10(mSun+1e-6)+6)/6,0,1);
-  const r=255, g=Math.floor(180+60*t), b=Math.floor(120+135*(1-t)); return (r<<16)|(g<<8)|b;
-}
-
-function resetSimulation() {
-  // Clear old bodies
-  if (central) scene.remove(central);
-  for (const b of bodies) scene.remove(b.mesh);
-  bodies.length = 0;
-  chartData.length = 0; clearTrails();
-
-  // Central star
-  const geoC = new THREE.SphereGeometry(starRadiusFromMass(centralMass), 32,24);
-  const matC = new THREE.MeshBasicMaterial({ color:0xffd27a });
-  central = new THREE.Mesh(geoC, matC); central.position.set(0,0,0); scene.add(central);
-
-  // Populate stars
-  const R = params.radiusAU * AU;
-  for (let i=0;i<params.n;i++) {
-    const pos = randomPointInSphere(R);
-    const mass = THREE.MathUtils.lerp(params.mMinMSun, params.mMaxMSun, Math.random())*MSUN;
-    const radius = Math.max(starRadiusFromMass(mass), 0.002*AU);
-    const color = massToColor(mass/MSUN);
-    const mesh = new THREE.Mesh(new THREE.SphereGeometry(radius,16,12), new THREE.MeshBasicMaterial({ color }));
-    mesh.position.copy(pos.clone().divideScalar(AU)); scene.add(mesh);
-    let vel = new THREE.Vector3();
-    const v0 = params.initV_kms*1000;
-    if (v0!==0) { const n = pos.clone().normalize(); const t = randomPerp(n); vel = t.multiplyScalar(v0); }
-    bodies.push({ pos, vel, mass, mesh, radius });
-  }
-
-  updateCentralAppearance();
-  autoFitCamera();
-  statusEl.textContent += "\nSimulation reset.";
-}
-
-function updateCentralAppearance() {
-  const r = starRadiusFromMass(centralMass);
-  central.geometry.dispose(); central.geometry = new THREE.SphereGeometry(r,32,24);
-  if (bloomPass) bloomPass.strength = params.glow ? params.glowIntensity : 0;
-}
-
-function handleElastic(a,b) {
-  const n = b.pos.clone().sub(a.pos).normalize();
-  const va = a.vel.dot(n), vb = b.vel.dot(n);
-  const ma=a.mass, mb=b.mass;
-  const va2 = (va*(ma-mb)+2*mb*vb)/(ma+mb);
-  const vb2 = (vb*(mb-ma)+2*ma*va)/(ma+mb);
-  a.vel.addScaledVector(n, va2-va); b.vel.addScaledVector(n, vb2-vb);
-}
-function handleMerge(i,j) {
-  const a=bodies[i], b=bodies[j];
-  const m=a.mass+b.mass; const v=a.vel.clone().multiplyScalar(a.mass).add(b.vel.clone().multiplyScalar(b.mass)).divideScalar(m);
-  a.mass=m; a.vel=v; a.pos.add(b.pos).multiplyScalar(0.5); a.radius=starRadiusFromMass(m);
-  a.mesh.geometry.dispose(); a.mesh.geometry = new THREE.SphereGeometry(a.radius,16,12);
-  a.mesh.material.color.setHex(massToColor(m/MSUN));
-  scene.remove(b.mesh); bodies.splice(j,1);
-}
-
-function stepPhysics(h) {
-  const eps2 = (params.softening*AU)**2;
-  for (let i=0;i<bodies.length;i++) {
-    const b=bodies[i];
-    const r = b.pos.length();
-    const n = r>0 ? b.pos.clone().divideScalar(r) : new THREE.Vector3();
-    const aMag = - G*centralMass/(r*r+eps2);
-    b.vel.addScaledVector(n, aMag*h);
-    b.pos.addScaledVector(b.vel, h);
-    // bounce from central radius
-    const cR = central.geometry.parameters.radius*AU;
-    if (r < cR) {
-      const normal = b.pos.clone().normalize();
-      const vn = normal.multiplyScalar(b.vel.dot(normal));
-      const vt = b.vel.clone().sub(vn);
-      b.vel.copy(vt.sub(vn));
-      b.pos.copy(normal.multiplyScalar(cR*1.01));
-    }
-    b.mesh.position.copy(b.pos.clone().divideScalar(AU));
-  }
-  if (params.collisionMode!=='none') {
-    for (let i=0;i<bodies.length;i++) for (let j=i+1;j<bodies.length;j++) {
-      const bi=bodies[i], bj=bodies[j]; const d=bi.pos.distanceTo(bj.pos);
-      if (d < bi.radius + bj.radius) {
-        if (params.collisionMode==='elastic') handleElastic(bi,bj);
-        else if (params.collisionMode==='merge') { handleMerge(i,j); j--; }
+      const $ = (id)=>document.getElementById(id);
+      function link(rangeId, numId, cb) {
+        const r = $(rangeId), n = $(numId);
+        function sync(fromRange) { if (fromRange) n.value=r.value; else r.value=n.value; cb(parseFloat(r.value)); }
+        r.addEventListener('input', ()=>sync(true)); n.addEventListener('input', ()=>sync(false)); sync(true);
       }
-    }
-  }
-}
+      link('nStars','nStarsNum', v=>params.n=v|0);
+      link('radiusAU','radiusAUNum', v=>params.radiusAU=v);
+      link('initV','initVNum', v=>params.initV_kms=v);
+      link('mMin','mMinNum', v=>params.mMinMSun=v);
+      link('mMax','mMaxNum', v=>params.mMaxMSun=v);
+      link('softening','softeningNum', v=>params.softening=v);
+      $('collisionMode').addEventListener('change', e=>params.collisionMode=e.target.value);
+      $('trailPreset').addEventListener('change', e=>{ const map={none:0,short:6,long:20,ultra:45}; const v=map[e.target.value]; $('trailSeconds').value=v; $('trailSecondsNum').value=v; params.trailSeconds=v; });
+      $('glowMode').addEventListener('change', e=>{ params.glow = e.target.value==='on'; if (bloomPass) bloomPass.strength = params.glow ? params.glowIntensity : 0; });
+      $('glowIntensity').addEventListener('input', e=>{ params.glowIntensity=parseFloat(e.target.value); if (bloomPass) bloomPass.strength = params.glow ? params.glowIntensity : 0; });
+      $('mCentral').addEventListener('input', e=>{ centralMass = parseFloat(e.target.value) * MSUN; updateCentralAppearance(); $('mCentralNum').value=e.target.value; });
+      $('mCentralNum').addEventListener('input', e=>{ centralMass = parseFloat(e.target.value) * MSUN; updateCentralAppearance(); $('mCentral').value=e.target.value; });
 
-function sampleEnergy() {
-  let K=0,U=0; const eps2=(params.softening*AU)**2;
-  for (const b of bodies) { K += 0.5*b.mass*b.vel.lengthSq(); const r=b.pos.length(); U += -G*centralMass*b.mass/Math.sqrt(r*r+eps2);}
-  chartData.push({K,U,T:K+U}); if (chartData.length>chartMaxPoints) chartData.shift();
-}
+      $('btnReset').addEventListener('click', resetSimulation);
+      $('btnStart').addEventListener('click', ()=>running=true);
+      $('btnPause').addEventListener('click', ()=>running=false);
+      $('btnClear').addEventListener('click', clearTrails);
+      $('btnAutoFit').addEventListener('click', autoFitCamera);
 
-function drawChart() {
-  const dpr = Math.min(devicePixelRatio,2); const w=chartCanvas.width, h=chartCanvas.height;
-  chartCtx.clearRect(0,0,w,h); if (chartData.length<2) return;
-  const K=chartData.map(d=>d.K), U=chartData.map(d=>d.U), T=chartData.map(d=>d.T);
-  const minY = Math.min(...K,...U,...T), maxY = Math.max(...K,...U,...T); const pad=10*dpr;
-  const xStep = (w-2*pad)/(chartData.length-1);
-  const mapY = v => h - pad - (v-minY)/(maxY-minY+1e-9)*(h-2*pad);
-  function series(arr, color) { chartCtx.beginPath(); chartCtx.lineWidth=2*dpr; chartCtx.strokeStyle=color; chartCtx.moveTo(pad,mapY(arr[0])); for (let i=1;i<arr.length;i++) chartCtx.lineTo(pad+i*xStep,mapY(arr[i])); chartCtx.stroke(); }
-  series(K,'#6fc2ff'); series(U,'#f6d06f'); series(T,'#a9f56f');
-}
+      init3D();
+      resetSimulation();
+      animate();
 
-function clearTrails() { overlay.clearRect(0,0,overlay.canvas.width,overlay.canvas.height); }
+      function init3D() {
+        const vp = document.getElementById('viewport');
+        scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x0b0f16);
 
-function updateMetrics(dt) {
-  const n=bodies.length;
-  const avgR = n? bodies.reduce((s,b)=>s+b.pos.length(),0)/n : 0;
-  const avgV = n? bodies.reduce((s,b)=>s+b.vel.length(),0)/n : 0;
-  $('metrics').textContent = [
-    'Renderer: ' + (renderer?.capabilities.isWebGL2 ? 'WebGL2' : 'WebGL1'),
-    'Vendor: ' + (boot.vendor||'n/a'),
-    'GPU: ' + (boot.renderer||'n/a'),
-    '—',
-    'Bodies: ' + n,
-    'Central Mass: ' + (centralMass/MSUN).toFixed(3) + ' M☉',
-    'Avg radius: ' + (avgR/AU).toFixed(3) + ' AU',
-    'Avg speed: ' + (avgV/1000).toFixed(3) + ' km/s',
-    'Collision: ' + params.collisionMode,
-    'Softening ε: ' + params.softening.toFixed(3),
-    'Glow: ' + (params.glow?('On ('+params.glowIntensity.toFixed(1)+')'):'Off'),
-  ].join('\n');
-}
+        camera = new THREE.PerspectiveCamera(55, 1, 0.01, 5000);
+        camera.position.set(12, 10, 18);
 
-function animate(t=0) {
-  requestAnimationFrame(animate);
-  const now = performance.now(); if (!lastT) lastT=now; const dt = (now-lastT)/1000; lastT=now;
-  if (running) {
-    const sim = dt*timeScale; const steps = Math.max(1, Math.ceil(sim/dtSub)); const h = sim/steps;
-    for (let s=0;s<steps;s++) stepPhysics(h);
-    sampleEnergy();
-  }
-  controls.update();
-  composer.render();
-  drawChart();
-  updateMetrics(dt);
-}
+        renderer = new THREE.WebGLRenderer({ antialias:true });
+        vp.appendChild(renderer.domElement);
+
+        function resize() {
+          const w = vp.clientWidth||1, h = vp.clientHeight||1;
+          renderer.setSize(w,h,false);
+          camera.aspect = w/h; camera.updateProjectionMatrix();
+          if (composer) composer.setSize(w,h);
+          const wrap = document.getElementById('chartWrap'); const dpr = Math.min(devicePixelRatio,2);
+          const width = (wrap.clientWidth||520) - 16; const height = 140;
+          chartCanvas.width = width*dpr; chartCanvas.height = height*dpr; chartCanvas.style.width=width+'px'; chartCanvas.style.height=height+'px';
+          document.getElementById('chartOverlay').width = chartCanvas.width; document.getElementById('chartOverlay').height = chartCanvas.height;
+        }
+        window.addEventListener('resize', resize); resize();
+
+        controls = new Ctls.TrackballControls(camera, renderer.domElement);
+        controls.rotateSpeed=3; controls.zoomSpeed=1.2; controls.panSpeed=0.8; controls.staticMoving=true; controls.dynamicDampingFactor=0.2;
+
+        composer = new FX.EffectComposer(renderer);
+        const rp = new RP.RenderPass(scene, camera);
+        bloomPass = new Bloom.UnrealBloomPass(new THREE.Vector2(vp.clientWidth||1, vp.clientHeight||1), params.glowIntensity, 0.8, 0.85);
+        composer.addPass(rp); composer.addPass(bloomPass);
+
+        // background stars
+        const starGeo = new THREE.BufferGeometry();
+        const starCnt = 800;
+        const starPos = new Float32Array(starCnt*3);
+        for (let i=0;i<starCnt;i++) { const r=1000, th=Math.random()*Math.PI*2, ph=Math.acos(2*Math.random()-1); starPos[3*i]=r*Math.sin(ph)*Math.cos(th); starPos[3*i+1]=r*Math.sin(ph)*Math.sin(th); starPos[3*i+2]=r*Math.cos(ph);}
+        starGeo.setAttribute('position', new THREE.BufferAttribute(starPos,3));
+        const starMat = new THREE.PointsMaterial({ size:1.5, sizeAttenuation:true, color:0x7fa6ff });
+        const stars = new THREE.Points(starGeo, starMat); scene.add(stars);
+
+        scene.add(new THREE.AmbientLight(0xffffff,0.25));
+        const d = new THREE.DirectionalLight(0xffffff,0.25); d.position.set(5,8,2); scene.add(d);
+
+        statusEl.textContent += "\nRenderer started.";
+      }
+
+      function autoFitCamera() {
+        const R = Math.max(params.radiusAU, 0.5);
+        const dist = R * 3;
+        camera.position.set(dist, dist*0.8, dist*1.2);
+        controls.target.set(0,0,0); controls.update();
+      }
+
+      function randomPointInSphere(Rm) {
+        let x,y,z; do { x=(Math.random()*2-1)*Rm; y=(Math.random()*2-1)*Rm; z=(Math.random()*2-1)*Rm; } while (x*x+y*y+z*z>Rm*Rm);
+        return new THREE.Vector3(x,y,z);
+      }
+      function randomPerp(n) { const v = new THREE.Vector3(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5); return v.cross(n).normalize(); }
+      function starRadiusFromMass(mkg) { const RSun=6.9634e8; const r = RSun*Math.pow(mkg/MSUN,0.8); return (r/AU)*20; }
+      function massToColor(mSun) { const t = THREE.MathUtils.clamp((Math.log10(mSun+1e-6)+6)/6,0,1); const r=255, g=Math.floor(180+60*t), b=Math.floor(120+135*(1-t)); return (r<<16)|(g<<8)|b; }
+
+      function resetSimulation() {
+        if (central) scene.remove(central);
+        for (const b of bodies) scene.remove(b.mesh);
+        bodies.length=0; chartData.length=0; clearTrails();
+
+        const geoC = new THREE.SphereGeometry(starRadiusFromMass(centralMass), 32,24);
+        const matC = new THREE.MeshBasicMaterial({ color:0xffd27a });
+        central = new THREE.Mesh(geoC, matC); central.position.set(0,0,0); scene.add(central);
+
+        const R = params.radiusAU * AU;
+        for (let i=0;i<params.n;i++) {
+          const pos = randomPointInSphere(R);
+          const mass = THREE.MathUtils.lerp(params.mMinMSun, params.mMaxMSun, Math.random())*MSUN;
+          const radius = Math.max(starRadiusFromMass(mass), 0.002*AU);
+          const color = massToColor(mass/MSUN);
+          const mesh = new THREE.Mesh(new THREE.SphereGeometry(radius,16,12), new THREE.MeshBasicMaterial({ color }));
+          mesh.position.copy(pos.clone().divideScalar(AU)); scene.add(mesh);
+          let vel = new THREE.Vector3();
+          const v0 = params.initV_kms*1000;
+          if (v0!==0) { const n = pos.clone().normalize(); const t = randomPerp(n); vel = t.multiplyScalar(v0); }
+          bodies.push({ pos, vel, mass, mesh, radius });
+        }
+
+        updateCentralAppearance();
+        autoFitCamera();
+        statusEl.textContent += "\nSimulation reset.";
+      }
+
+      function updateCentralAppearance() {
+        const r = starRadiusFromMass(centralMass);
+        central.geometry.dispose(); central.geometry = new THREE.SphereGeometry(r,32,24);
+        if (bloomPass) bloomPass.strength = params.glow ? params.glowIntensity : 0;
+      }
+
+      function handleElastic(a,b) {
+        const n = b.pos.clone().sub(a.pos).normalize();
+        const va = a.vel.dot(n), vb = b.vel.dot(n);
+        const ma=a.mass, mb=b.mass;
+        const va2 = (va*(ma-mb)+2*mb*vb)/(ma+mb);
+        const vb2 = (vb*(mb-ma)+2*ma*va)/(ma+mb);
+        a.vel.addScaledVector(n, va2-va); b.vel.addScaledVector(n, vb2-vb);
+      }
+      function handleMerge(i,j) {
+        const a=bodies[i], b=bodies[j];
+        const m=a.mass+b.mass; const v=a.vel.clone().multiplyScalar(a.mass).add(b.vel.clone().multiplyScalar(b.mass)).divideScalar(m);
+        a.mass=m; a.vel=v; a.pos.add(b.pos).multiplyScalar(0.5); a.radius=starRadiusFromMass(m);
+        a.mesh.geometry.dispose(); a.mesh.geometry = new THREE.SphereGeometry(a.radius,16,12);
+        a.mesh.material.color.setHex(massToColor(m/MSUN));
+        scene.remove(b.mesh); bodies.splice(j,1);
+      }
+
+      function stepPhysics(h) {
+        const eps2 = (params.softening*AU)**2;
+        for (let i=0;i<bodies.length;i++) {
+          const b=bodies[i];
+          const r = b.pos.length();
+          const n = r>0 ? b.pos.clone().divideScalar(r) : new THREE.Vector3();
+          const aMag = - G*centralMass/(r*r+eps2);
+          b.vel.addScaledVector(n, aMag*h);
+          b.pos.addScaledVector(b.vel, h);
+          const cR = central.geometry.parameters.radius*AU;
+          if (r < cR) { const normal = b.pos.clone().normalize(); const vn = normal.multiplyScalar(b.vel.dot(normal)); const vt = b.vel.clone().sub(vn); b.vel.copy(vt.sub(vn)); b.pos.copy(normal.multiplyScalar(cR*1.01)); }
+          b.mesh.position.copy(b.pos.clone().divideScalar(AU));
+        }
+        if (params.collisionMode!=='none') {
+          for (let i=0;i<bodies.length;i++) for (let j=i+1;j<bodies.length;j++) {
+            const bi=bodies[i], bj=bodies[j]; const d=bi.pos.distanceTo(bj.pos);
+            if (d < bi.radius + bj.radius) {
+              if (params.collisionMode==='elastic') handleElastic(bi,bj);
+              else if (params.collisionMode==='merge') { handleMerge(i,j); j--; }
+            }
+          }
+        }
+      }
+
+      function sampleEnergy() {
+        let K=0,U=0; const eps2=(params.softening*AU)**2;
+        for (const b of bodies) { K += 0.5*b.mass*b.vel.lengthSq(); const r=b.pos.length(); U += -G*centralMass*b.mass/Math.sqrt(r*r+eps2);}
+        chartData.push({K,U,T:K+U}); if (chartData.length>chartMaxPoints) chartData.shift();
+      }
+
+      function drawChart() {
+        const dpr = Math.min(devicePixelRatio,2); const w=chartCanvas.width, h=chartCanvas.height;
+        chartCtx.clearRect(0,0,w,h); if (chartData.length<2) return;
+        const K=chartData.map(d=>d.K), U=chartData.map(d=>d.U), T=chartData.map(d=>d.T);
+        const minY = Math.min(...K,...U,...T), maxY = Math.max(...K,...U,...T); const pad=10*dpr;
+        const xStep = (w-2*pad)/(chartData.length-1);
+        const mapY = v => h - pad - (v-minY)/(maxY-minY+1e-9)*(h-2*pad);
+        function series(arr, color) { chartCtx.beginPath(); chartCtx.lineWidth=2*dpr; chartCtx.strokeStyle=color; chartCtx.moveTo(pad,mapY(arr[0])); for (let i=1;i<arr.length;i++) chartCtx.lineTo(pad+i*xStep,mapY(arr[i])); chartCtx.stroke(); }
+        series(K,'#6fc2ff'); series(U,'#f6d06f'); series(T,'#a9f56f');
+      }
+
+      function clearTrails() { overlay.clearRect(0,0,overlay.canvas.width,overlay.canvas.height); }
+
+      function updateMetrics(dt) {
+        const n=bodies.length;
+        const avgR = n? bodies.reduce((s,b)=>s+b.pos.length(),0)/n : 0;
+        const avgV = n? bodies.reduce((s,b)=>s+b.vel.length(),0)/n : 0;
+        document.getElementById('metrics').textContent = [
+          'Renderer: ' + (renderer?.capabilities.isWebGL2 ? 'WebGL2' : 'WebGL1'),
+          'Vendor: ' + (boot.vendor||'n/a'),
+          'GPU: ' + (boot.renderer||'n/a'),
+          '—',
+          'Bodies: ' + n,
+          'Central Mass: ' + (centralMass/MSUN).toFixed(3) + ' M☉',
+          'Avg radius: ' + (avgR/AU).toFixed(3) + ' AU',
+          'Avg speed: ' + (avgV/1000).toFixed(3) + ' km/s',
+          'Collision: ' + params.collisionMode,
+          'Softening ε: ' + params.softening.toFixed(3),
+          'Glow: ' + (params.glow?('On ('+params.glowIntensity.toFixed(1)+')'):'Off'),
+        ].join('\n');
+      }
+
+      function animate() {
+        requestAnimationFrame(animate);
+        const now = performance.now(); if (!lastT) lastT=now; const dt=(now-lastT)/1000; lastT=now;
+        if (running) {
+          const sim = dt*timeScale; const steps = Math.max(1, Math.ceil(sim/dtSub)); const h = sim/steps;
+          for (let s=0;s<steps;s++) stepPhysics(h);
+          sampleEnergy();
+        }
+        controls.update();
+        composer.render();
+        drawChart();
+        updateMetrics(dt);
+      }
+    })();
+  }).catch(err => {
+    statusEl.textContent += "\nError loading modules: " + err.message;
+    console.error(err);
+  });
+})();
 </script>
 </body>
 </html>
