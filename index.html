@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>N-Body Playground by Steve Cullen and ChatGPT (v2.0.1)</title>
+<title>N-Body Playground by Steve Cullen and ChatGPT (v2.0.3)</title>
 <style>
   html, body { margin:0; height:100%; background:#0b0f16; color:#e6eef8; font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; }
   #topbar { position:fixed; top:0; left:0; right:0; display:flex; align-items:center; gap:16px; padding:10px 12px; background:#0d1628; border-bottom:1px solid #1a2b4a; z-index:20; }
@@ -38,7 +38,7 @@
 </head>
 <body>
 <div id="topbar">
-  <div id="title">N-Body Playground by Steve Cullen and ChatGPT (v2.0.1)</div>
+  <div id="title">N-Body Playground by Steve Cullen and ChatGPT (v2.0.3)</div>
   <div id="status">Booting…</div>
 </div>
 
@@ -115,298 +115,115 @@
   </div>
 </div>
 
-<script src="https://unpkg.com/three@0.150.1/build/three.min.js"></script>
-<script src="https://unpkg.com/three@0.150.1/examples/js/controls/TrackballControls.js"></script>
 <script>
-(function() {{
+// Boot/diagnostics & dynamic loader
+(function(){
   const statusEl = document.getElementById('status');
-  function webglInfo() {{
-    const canvas = document.createElement('canvas');
-    const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
-    if (!gl) return {{ ok:false, msg:'WebGL not supported' }};
-    let vendor='n/a', renderer='n/a', version=gl.getParameter(gl.VERSION);
-    const dbg = gl.getExtension('WEBGL_debug_renderer_info');
-    try {{
-      if (dbg) {{
-        vendor = gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL);
-        renderer = gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL);
-      }} else {{
-        vendor = gl.getParameter(gl.VENDOR);
-        renderer = gl.getParameter(gl.RENDERER);
-      }}
-    }} catch(e) {{}}
-    return {{ ok:true, vendor, renderer, version }};
-  }}
-  const boot = webglInfo();
-  statusEl.textContent = boot.ok
-    ? `WebGL OK | Vendor: ${{boot.vendor}} | GPU: ${{boot.renderer}}`
-    : `WebGL FAILED: ${{boot.msg}}`;
-}})();
+  function setStatus(msg, err){ statusEl.textContent = msg; statusEl.style.color = err ? '#ff7b7b' : ''; }
+  function webglOK(){ const c=document.createElement('canvas'); const gl=c.getContext('webgl')||c.getContext('experimental-webgl'); return !!gl; }
+  if(!webglOK()){ setStatus('❌ WebGL not supported'); return; }
+  setStatus('✅ WebGL OK — loading Three.js…');
+  function load(u){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=u; s.onload=()=>res(u); s.onerror=()=>rej(u); document.head.appendChild(s); }); }
+  load('https://unpkg.com/three@0.150.1/build/three.min.js')
+  .then(()=>{ setStatus('✅ Three.js loaded — loading TrackballControls…'); return load('https://unpkg.com/three@0.150.1/examples/js/controls/TrackballControls.js'); })
+  .then(()=>{ setStatus('✅ Controls loaded — initializing…'); startApp(); })
+  .catch(u=>{ setStatus('⚠️ Failed to load: '+u, true); });
+  
+  function startApp(){
+    const AU=1.496e11, MSUN=1.989e30, G=6.67430e-11;
+    const $ = id=>document.getElementById(id);
+    const state = {
+      n: parseInt($('nStars').value,10),
+      radiusAU: parseFloat($('radiusAU').value),
+      initV_kms: parseFloat($('initV').value),
+      mMinMSun: parseFloat($('mMin').value),
+      mMaxMSun: parseFloat($('mMax').value),
+      softening: parseFloat($('softening').value),
+      collisionMode: $('collisionMode').value,
+      trailSeconds: parseFloat($('trailSeconds').value),
+      glow: $('glowMode').value==='on',
+      glowIntensity: parseFloat($('glowIntensity').value),
+      running:false, timeScale:1500, subDt:0.02
+    };
+    let centralMass = parseFloat($('mCentral').value)*MSUN;
+
+    function link(rangeId, numId, cb){ const r=$(rangeId), n=$(numId); function sync(fr){ if(fr) n.value=r.value; else r.value=n.value; cb(parseFloat(r.value)); } r.addEventListener('input',()=>sync(true)); n.addEventListener('input',()=>sync(false)); sync(true); }
+    link('nStars','nStarsNum', v=>state.n=v|0);
+    link('radiusAU','radiusAUNum', v=>state.radiusAU=v);
+    link('initV','initVNum', v=>state.initV_kms=v);
+    link('mMin','mMinNum', v=>state.mMinMSun=v);
+    link('mMax','mMaxNum', v=>state.mMaxMSun=v);
+    link('softening','softeningNum', v=>state.softening=v);
+    $('collisionMode').addEventListener('change', e=>state.collisionMode=e.target.value);
+    $('trailPreset').addEventListener('change', e=>{ const map={none:0,short:6,long:20,ultra:45}; const v=map[e.target.value]; $('trailSeconds').value=v; $('trailSecondsNum').value=v; state.trailSeconds=v; });
+    $('glowMode').addEventListener('change', e=>{ state.glow = e.target.value==='on'; });
+    $('glowIntensity').addEventListener('input', e=>{ state.glowIntensity=parseFloat(e.target.value); });
+    link('mCentral','mCentralNum', v=>{ centralMass=v*MSUN; updateCentral(); });
+    $('btnStart').onclick=()=>state.running=true;
+    $('btnPause').onclick=()=>state.running=false;
+    $('btnReset').onclick=()=>resetSystem();
+    $('btnAutoFit').onclick=()=>autoFit();
+    $('btnClear').onclick=()=>clearTrails();
+
+    const scene=new THREE.Scene(); scene.background=new THREE.Color(0x0b0f16);
+    const vpEl=$('viewport');
+    const camera=new THREE.PerspectiveCamera(55,1,0.01,5000); camera.position.set(12,10,18);
+    const renderer=new THREE.WebGLRenderer({antialias:true}); vpEl.appendChild(renderer.domElement);
+    const controls=new THREE.TrackballControls(camera, renderer.domElement);
+    controls.rotateSpeed=3; controls.zoomSpeed=1.2; controls.panSpeed=0.8; controls.staticMoving=true; controls.dynamicDampingFactor=0.2;
+
+    const trailCanvas=$('trailCanvas'); const trailCtx=trailCanvas.getContext('2d');
+    const chartCanvas=$('chart'); const chartCtx=chartCanvas.getContext('2d'); let chartData=[]; const chartMaxPoints=600;
+
+    function resizeAll(){ const w=vpEl.clientWidth||1, h=vpEl.clientHeight||1; renderer.setSize(w,h,false); camera.aspect=w/h; camera.updateProjectionMatrix(); trailCanvas.width=w; trailCanvas.height=h; const dpr=Math.min(devicePixelRatio,2); const chartW=520, chartH=140; chartCanvas.width=chartW*dpr; chartCanvas.height=chartH*dpr; chartCanvas.style.width=chartW+'px'; chartCanvas.style.height=chartH+'px'; }
+    window.addEventListener('resize', resizeAll); resizeAll();
+
+    (function(){ const geo=new THREE.BufferGeometry(); const N=1000, arr=new Float32Array(N*3); for(let i=0;i<N;i++){ const r=1200,t=Math.random()*Math.PI*2,p=Math.acos(2*Math.random()-1); arr[3*i]=r*Math.sin(p)*Math.cos(t); arr[3*i+1]=r*Math.sin(p)*Math.sin(t); arr[3*i+2]=r*Math.cos(p);} geo.setAttribute('position',new THREE.BufferAttribute(arr,3)); const mat=new THREE.PointsMaterial({size:1.5,color:0x6fa3ff}); scene.add(new THREE.Points(geo,mat)); })();
+
+    function centralRadiusAU(mkg){ const RSun=6.9634e8; const r=RSun*Math.pow(mkg/MSUN,0.8); return (r/AU)*20; }
+    const cMat=new THREE.MeshBasicMaterial({color:0xffd27a});
+    let central=new THREE.Mesh(new THREE.SphereGeometry(centralRadiusAU(centralMass), 24, 18), cMat); scene.add(central);
+    function makeGlowSprite(size){ const c=document.createElement('canvas'); c.width=c.height=256; const ctx=c.getContext('2d'); const g=ctx.createRadialGradient(128,128,0,128,128,128); g.addColorStop(0,'rgba(255,220,180,1)'); g.addColorStop(1,'rgba(255,220,180,0)'); ctx.fillStyle=g; ctx.fillRect(0,0,256,256); const tex=new THREE.CanvasTexture(c); const mat=new THREE.SpriteMaterial({map:tex, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, opacity: state.glow?state.glowIntensity:0}); const spr=new THREE.Sprite(mat); spr.scale.set(size,size,1); return spr; }
+    let centralHalo=makeGlowSprite(10); scene.add(centralHalo);
+    function updateCentral(){ const r=centralRadiusAU(centralMass); central.geometry.dispose(); central.geometry=new THREE.SphereGeometry(r,24,18); centralHalo.material.opacity = state.glow?state.glowIntensity:0; centralHalo.scale.setScalar(1+8*state.glowIntensity); }
+
+    function starRadiusFromMass(mkg){ const RSun=6.9634e8; const r=RSun*Math.pow(mkg/MSUN,0.8); return (r/AU)*12; }
+    function massToHex(mSun){ const t=Math.max(0,Math.min(1,(Math.log10(mSun+1e-6)+6)/6)); const r=255,g=Math.floor(180+60*t),b=Math.floor(120+135*(1-t)); return (r<<16)|(g<<8)|b; }
+    let bodies=[];
+
+    function resetSystem(){ for(const b of bodies) scene.remove(b.mesh); bodies.length=0; chartData.length=0; clearTrails(); updateCentral(); const R=state.radiusAU*AU;
+      for(let i=0;i<state.n;i++){ let x,y,z; do{ x=(Math.random()*2-1)*R; y=(Math.random()*2-1)*R; z=(Math.random()*2-1)*R; }while(x*x+y*y+z*z>R*R);
+        const pos=new THREE.Vector3(x,y,z); const m=THREE.MathUtils.lerp(state.mMinMSun,state.mMaxMSun,Math.random())*MSUN; const r=Math.max(starRadiusFromMass(m),0.002*AU);
+        const mesh=new THREE.Mesh(new THREE.SphereGeometry(r,12,8), new THREE.MeshBasicMaterial({color:massToHex(m/MSUN)}));
+        mesh.position.copy(pos.clone().divideScalar(AU)); scene.add(mesh);
+        let vel=new THREE.Vector3(); const v0=state.initV_kms*1000; if(v0!==0){ const nrm=pos.clone().normalize(); let a=new THREE.Vector3(nrm.y,-nrm.x,0).normalize(); vel=a.multiplyScalar(v0); }
+        bodies.push({pos,vel,mass:m,radius:r,mesh});
+      } autoFit(); }
+
+    function autoFit(){ const dist=Math.max(8,state.radiusAU*3); camera.position.set(dist,dist*0.8,dist*1.2); controls.target.set(0,0,0); controls.update(); }
+    function clearTrails(){ trailCtx.clearRect(0,0,trailCanvas.width, trailCanvas.height); }
+
+    function handleElastic(a,b){ const n=b.pos.clone().sub(a.pos).normalize(); const va=a.vel.dot(n), vb=b.vel.dot(n); const ma=a.mass, mb=b.mass; const va2=(va*(ma-mb)+2*mb*vb)/(ma+mb); const vb2=(vb*(mb-ma)+2*ma*va)/(ma+mb); a.vel.addScaledVector(n,va2-va); b.vel.addScaledVector(n,vb2-vb); }
+    function handleMerge(i,j){ const a=bodies[i], b=bodies[j]; const m=a.mass+b.mass; const v=a.vel.clone().multiplyScalar(a.mass).add(b.vel.clone().multiplyScalar(b.mass)).divideScalar(m); const pos=a.pos.clone().add(b.pos).multiplyScalar(0.5); a.mass=m; a.vel=v; a.pos=pos; a.radius=starRadiusFromMass(m); a.mesh.geometry.dispose(); a.mesh.geometry=new THREE.SphereGeometry(a.radius,12,8); a.mesh.material.color.setHex(massToHex(m/MSUN)); scene.remove(b.mesh); bodies.splice(j,1); }
+
+    function stepPhysics(h){ const eps2=(state.softening*AU)**2; for(let i=0;i<bodies.length;i++){ const b=bodies[i]; const r=b.pos.length(); const aMag=-G*centralMass/(r*r+eps2); const nrm=r>0? b.pos.clone().divideScalar(r): new THREE.Vector3(); b.vel.addScaledVector(nrm,aMag*h); b.pos.addScaledVector(b.vel,h); const cR=central.geometry.parameters.radius*AU; if(r<cR){ const normal=b.pos.clone().normalize(); const vn=normal.multiplyScalar(b.vel.dot(normal)); const vt=b.vel.clone().sub(vn); b.vel.copy(vt.sub(vn)); b.pos.copy(normal.multiplyScalar(cR*1.01)); } b.mesh.position.copy(b.pos.clone().divideScalar(AU)); }
+      if(state.collisionMode!=='none'){ for(let i=0;i<bodies.length;i++) for(let j=i+1;j<bodies.length;j++){ const bi=bodies[i], bj=bodies[j]; const d=bi.pos.distanceTo(bj.pos); if(d<bi.radius + bj.radius){ if(state.collisionMode==='elastic') handleElastic(bi,bj); else if(state.collisionMode==='merge'){ handleMerge(i,j); j--; } } } } }
+
+    function sampleEnergy(){ let K=0,U=0; const eps2=(state.softening*AU)**2; for(const b of bodies){ K += 0.5*b.mass*b.vel.lengthSq(); const r=b.pos.length(); U += -G*centralMass*b.mass/Math.sqrt(r*r+eps2); } chartData.push({K,U,T:K+U}); if(chartData.length>chartMaxPoints) chartData.shift(); }
+    function drawChart(){ const dpr=Math.min(devicePixelRatio,2); const w=chartCanvas.width, h=chartCanvas.height; chartCtx.clearRect(0,0,w,h); if(chartData.length<2) return; const K=chartData.map(d=>d.K), U=chartData.map(d=>d.U), T=chartData.map(d=>d.T); const minY=Math.min(...K,...U,...T), maxY=Math.max(...K,...U,...T); const pad=10*dpr; const xStep=(w-2*pad)/(chartData.length-1); const mapY=v=> h - pad - (v-minY)/(maxY-minY+1e-9)*(h-2*pad); function series(a,c){ chartCtx.beginPath(); chartCtx.lineWidth=2*dpr; chartCtx.strokeStyle=c; chartCtx.moveTo(pad,mapY(a[0])); for(let i=1;i<a.length;i++) chartCtx.lineTo(pad+i*xStep,mapY(a[i])); chartCtx.stroke(); } series(K,'#6fc2ff'); series(U,'#f6d06f'); series(T,'#a9f56f'); }
+
+    function renderTrails(dt){ const w=trailCanvas.width,h=trailCanvas.height; if(state.trailSeconds<=0){ trailCtx.clearRect(0,0,w,h); return; } const decay=Math.max(0,1 - dt*(1/state.trailSeconds)); trailCtx.globalCompositeOperation='source-over'; trailCtx.fillStyle='rgba(13,19,34,'+(1-decay)+')'; trailCtx.fillRect(0,0,w,h); trailCtx.globalCompositeOperation='lighter'; const v3=new THREE.Vector3(); for(const b of bodies){ v3.copy(b.mesh.position).project(camera); const x=(v3.x*0.5+0.5)*w; const y=(-v3.y*0.5+0.5)*h; trailCtx.fillStyle='rgba(180,200,255,'+(0.4+0.6*state.glowIntensity)+')'; trailCtx.fillRect(x,y,1.5,1.5); } }
+
+    function updateMetrics(){ const n=bodies.length; const avgR = n? bodies.reduce((s,b)=>s+b.pos.length(),0)/n : 0; const avgV = n? bodies.reduce((s,b)=>s+b.vel.length(),0)/n : 0; $('metrics').textContent=[ 'Version: v2.0.3', 'Renderer: '+(renderer.capabilities.isWebGL2?'WebGL2':'WebGL1'), 'Bodies: '+n, 'Central Mass: '+(centralMass/MSUN).toFixed(3)+' M\u2609', 'Avg radius: '+(avgR/AU).toFixed(3)+' AU', 'Avg speed: '+(avgV/1000).toFixed(3)+' km/s', 'Collision: '+state.collisionMode, 'Softening ε: '+state.softening.toFixed(3), 'Glow: '+(state.glow?('On ('+state.glowIntensity.toFixed(2)+')'):'Off') ].join('\n'); }
+
+    resetSystem(); autoFit();
+    let last=performance.now();
+    function loop(){ requestAnimationFrame(loop); const now=performance.now(); const dt=Math.max(0,(now-last)/1000); last=now; if(state.running){ const sim=dt*state.timeScale; const steps=Math.max(1,Math.ceil(sim/state.subDt)); const h=sim/steps; for(let s=0;s<steps;s++) stepPhysics(h); sampleEnergy(); } controls.update(); renderer.render(scene,camera); renderTrails(dt); drawChart(); updateMetrics(); centralHalo.position.set(0,0,0); centralHalo.material.opacity = state.glow?state.glowIntensity:0; }
+    loop();
+
+    setStatus('✅ Ready — hit Start');
+  }
+})();
 </script>
-
-<script>
-(function() {{
-  const AU = 1.496e11, MSUN = 1.989e30, G = 6.67430e-11;
-
-  const state = {{
-    n: 800,
-    radiusAU: 6,
-    initV_kms: 0,
-    mMinMSun: 5e-5,
-    mMaxMSun: 1e-3,
-    softening: 0.01,
-    collisionMode: 'none',
-    trailSeconds: 20,
-    glow: true,
-    glowIntensity: 0.6,
-    running: false,
-    timeScale: 1500,
-    subDt: 0.02
-  }};
-
-  let centralMass = 1 * MSUN;
-
-  const chartCanvas = document.getElementById('chart');
-  const chartCtx = chartCanvas.getContext('2d');
-  let chartData = [];
-  const chartMaxPoints = 600;
-
-  const trailCanvas = document.getElementById('trailCanvas');
-  const trailCtx = trailCanvas.getContext('2d');
-
-  const $ = (id)=>document.getElementById(id);
-  function link(rangeId, numId, cb) {{
-    const r=$(rangeId), n=$(numId);
-    function sync(fromRange) {{ if (fromRange) n.value=r.value; else r.value=n.value; cb(parseFloat(r.value)); }}
-    r.addEventListener('input', ()=>sync(true)); n.addEventListener('input', ()=>sync(false)); sync(true);
-  }}
-  link('nStars','nStarsNum', v=>state.n=v|0);
-  link('radiusAU','radiusAUNum', v=>state.radiusAU=v);
-  link('initV','initVNum', v=>state.initV_kms=v);
-  link('mMin','mMinNum', v=>state.mMinMSun=v);
-  link('mMax','mMaxNum', v=>state.mMaxMSun=v);
-  link('softening','softeningNum', v=>state.softening=v);
-  $('collisionMode').addEventListener('change', e=>state.collisionMode=e.target.value);
-  $('trailPreset').addEventListener('change', e=>{{ const map={{none:0,short:6,long:20,ultra:45}}; const v=map[e.target.value]; $('trailSeconds').value=v; $('trailSecondsNum').value=v; state.trailSeconds=v; }});
-  $('glowMode').addEventListener('change', e=>{{ state.glow = e.target.value==='on'; }});
-  $('glowIntensity').addEventListener('input', e=>{{ state.glowIntensity = parseFloat(e.target.value); }});
-  link('mCentral','mCentralNum', v=>{{ centralMass = v*MSUN; updateCentral(); }});
-  $('btnStart').onclick = ()=> state.running = true;
-  $('btnPause').onclick = ()=> state.running = false;
-  $('btnReset').onclick = ()=> resetSystem();
-  $('btnAutoFit').onclick = ()=> autoFit();
-  $('btnClear').onclick = ()=> clearTrails();
-
-  const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x0b0f16);
-  const vpEl = document.getElementById('viewport');
-  const camera = new THREE.PerspectiveCamera(55, 1, 0.01, 5000);
-  camera.position.set(12, 10, 18);
-  const renderer = new THREE.WebGLRenderer({ antialias:true });
-  vpEl.appendChild(renderer.domElement);
-  const controls = new THREE.TrackballControls(camera, renderer.domElement);
-  controls.rotateSpeed = 3; controls.zoomSpeed=1.2; controls.panSpeed=0.8; controls.staticMoving=true; controls.dynamicDampingFactor=0.2;
-
-  function resizeAll() {{
-    const w = vpEl.clientWidth||1, h = vpEl.clientHeight||1;
-    renderer.setSize(w,h,false);
-    camera.aspect = w/h; camera.updateProjectionMatrix();
-    trailCanvas.width = w; trailCanvas.height = h;
-    const dpr = Math.min(devicePixelRatio,2);
-    const chartW = 520, chartH = 140;
-    chartCanvas.width = chartW*dpr; chartCanvas.height = chartH*dpr;
-    chartCanvas.style.width = chartW+'px'; chartCanvas.style.height = chartH+'px';
-  }}
-  window.addEventListener('resize', resizeAll); resizeAll();
-
-  (function addStarfield(){{
-    const geo = new THREE.BufferGeometry();
-    const N = 1000, arr = new Float32Array(N*3);
-    for (let i=0;i<N;i++){{ const r=1200, t=Math.random()*Math.PI*2, p=Math.acos(2*Math.random()-1); arr[3*i]=r*Math.sin(p)*Math.cos(t); arr[3*i+1]=r*Math.sin(p)*Math.sin(t); arr[3*i+2]=r*Math.cos(p);}}
-    geo.setAttribute('position', new THREE.BufferAttribute(arr,3));
-    const mat = new THREE.PointsMaterial({ size:1.5, color:0x6fa3ff });
-    scene.add(new THREE.Points(geo,mat));
-  }})();
-
-  let central, centralHalo;
-  function centralRadiusAU(mkg) {{ const RSun=6.9634e8; const r=RSun*Math.pow(mkg/MSUN,0.8); return (r/AU)*20; }}
-  function updateCentral() {{
-    const rAU = centralRadiusAU(centralMass);
-    central.geometry.dispose(); central.geometry = new THREE.SphereGeometry(rAU, 24, 18);
-    if (centralHalo) centralHalo.scale.setScalar(1 + 8*state.glowIntensity);
-    central.material.opacity = 1.0;
-  }}
-  function addGlowSprite(size) {{
-    const canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 256;
-    const ctx = canvas.getContext('2d');
-    const grd = ctx.createRadialGradient(128,128,0,128,128,128);
-    grd.addColorStop(0, 'rgba(255,220,180,1)');
-    grd.addColorStop(1, 'rgba(255,220,180,0)');
-    ctx.fillStyle = grd; ctx.fillRect(0,0,256,256);
-    const tex = new THREE.CanvasTexture(canvas); tex.minFilter = THREE.LinearFilter; tex.magFilter = THREE.LinearFilter; tex.wrapS=tex.wrapT=THREE.ClampToEdgeWrapping;
-    const mat = new THREE.SpriteMaterial({ map: tex, color: 0xffffff, opacity: 0.6, depthWrite:false, transparent:true, blending: THREE.AdditiveBlending });
-    const sprite = new THREE.Sprite(mat); sprite.scale.set(size,size,1);
-    return sprite;
-  }}
-
-  const cMat = new THREE.MeshBasicMaterial({ color:0xffd27a });
-  central = new THREE.Mesh(new THREE.SphereGeometry(centralRadiusAU(centralMass), 24, 18), cMat);
-  scene.add(central);
-  centralHalo = addGlowSprite(10);
-  scene.add(centralHalo);
-
-  let bodies = [];
-  function starRadiusFromMass(mkg) {{ const RSun=6.9634e8; const r=RSun*Math.pow(mkg/MSUN,0.8); return (r/AU)*12; }}
-  function massToColorHex(mSun) {{ const t = Math.max(0, Math.min(1, (Math.log10(mSun+1e-6)+6)/6 )); const r=255, g=Math.floor(180+60*t), b=Math.floor(120+135*(1-t)); return (r<<16)|(g<<8)|b; }}
-
-  function resetSystem() {{
-    for (const b of bodies) {{ scene.remove(b.mesh); if (b.halo) scene.remove(b.halo); }}
-    bodies.length=0; chartData.length=0; clearTrails();
-    updateCentral();
-    const R = state.radiusAU * AU;
-    for (let i=0;i<state.n;i++) {{
-      let x,y,z; do {{ x=(Math.random()*2-1)*R; y=(Math.random()*2-1)*R; z=(Math.random()*2-1)*R; }} while (x*x+y*y+z*z>R*R);
-      const pos = new THREE.Vector3(x,y,z);
-      const m = THREE.MathUtils.lerp(state.mMinMSun, state.mMaxMSun, Math.random()) * MSUN;
-      const r = Math.max(starRadiusFromMass(m), 0.002*AU);
-      const color = massToColorHex(m/MSUN);
-      const mesh = new THREE.Mesh(new THREE.SphereGeometry(r, 12, 8), new THREE.MeshBasicMaterial({ color }));
-      mesh.position.copy(pos.clone().divideScalar(AU)); scene.add(mesh);
-      let vel = new THREE.Vector3();
-      const v0 = state.initV_kms*1000;
-      if (v0!==0) {{ const nrm = pos.clone().normalize(); let a = new THREE.Vector3(nrm.y, -nrm.x, 0).normalize(); vel = a.multiplyScalar(v0); }}
-      let halo = null;
-      if (state.glow) {{ halo = addGlowSprite(r*6/AU); halo.material.opacity = state.glowIntensity; halo.position.copy(mesh.position); scene.add(halo); }}
-      bodies.push({ pos, vel, mass:m, radius:r, mesh, halo });
-    }}
-    autoFit();
-  }}
-
-  function autoFit() {{ const dist = Math.max(8, state.radiusAU*3); camera.position.set(dist, dist*0.8, dist*1.2); controls.target.set(0,0,0); controls.update(); }}
-
-  function clearTrails() {{ trailCtx.clearRect(0,0,trailCanvas.width, trailCanvas.height); }}
-
-  function handleElastic(a,b) {{
-    const n = b.pos.clone().sub(a.pos).normalize();
-    const va = a.vel.dot(n), vb = b.vel.dot(n);
-    const ma=a.mass, mb=b.mass;
-    const va2 = (va*(ma-mb)+2*mb*vb)/(ma+mb);
-    const vb2 = (vb*(mb-ma)+2*ma*va)/(ma+mb);
-    a.vel.addScaledVector(n, va2-va); b.vel.addScaledVector(n, vb2-vb);
-  }}
-  function handleMerge(i,j) {{
-    const a=bodies[i], b=bodies[j];
-    const m=a.mass+b.mass;
-    const v=a.vel.clone().multiplyScalar(a.mass).add(b.vel.clone().multiplyScalar(b.mass)).divideScalar(m);
-    const pos=a.pos.clone().add(b.pos).multiplyScalar(0.5);
-    a.mass=m; a.vel=v; a.pos=pos; a.radius = starRadiusFromMass(m);
-    a.mesh.geometry.dispose(); a.mesh.geometry = new THREE.SphereGeometry(a.radius,12,8);
-    a.mesh.material.color.setHex(massToColorHex(m/MSUN));
-    scene.remove(b.mesh); if (b.halo) scene.remove(b.halo);
-    bodies.splice(j,1);
-  }}
-
-  function stepPhysics(h) {{
-    const eps2 = (state.softening*AU)**2;
-    for (let i=0;i<bodies.length;i++) {{
-      const b = bodies[i];
-      const r = b.pos.length();
-      const aMag = - G * centralMass / (r*r + eps2);
-      const nrm = r>0 ? b.pos.clone().divideScalar(r) : new THREE.Vector3();
-      b.vel.addScaledVector(nrm, aMag*h);
-      b.pos.addScaledVector(b.vel, h);
-      const cR = central.geometry.parameters.radius * AU;
-      if (r<cR) {{ const normal = b.pos.clone().normalize(); const vn = normal.multiplyScalar(b.vel.dot(normal)); const vt = b.vel.clone().sub(vn); b.vel.copy(vt.sub(vn)); b.pos.copy(normal.multiplyScalar(cR*1.01)); }}
-      const pAU = b.pos.clone().divideScalar(AU);
-      b.mesh.position.copy(pAU);
-      if (b.halo) b.halo.position.copy(pAU);
-    }}
-    if (state.collisionMode!=='none') {{
-      for (let i=0;i<bodies.length;i++) for (let j=i+1;j<bodies.length;j++) {{
-        const bi=bodies[i], bj=bodies[j];
-        const d = bi.pos.distanceTo(bj.pos);
-        if (d < bi.radius + bj.radius) {{
-          if (state.collisionMode==='elastic') handleElastic(bi,bj);
-          else if (state.collisionMode==='merge') {{ handleMerge(i,j); j--; }}
-        }}
-      }}
-    }}
-  }}
-
-  function sampleEnergy() {{
-    let K=0, U=0; const eps2=(state.softening*AU)**2;
-    for (const b of bodies) {{ K += 0.5*b.mass*b.vel.lengthSq(); const r=b.pos.length(); U += -G*centralMass*b.mass/Math.sqrt(r*r+eps2); }}
-    chartData.push({ K,U,T:K+U }); if (chartData.length>chartMaxPoints) chartData.shift();
-  }}
-
-  function drawChart() {{
-    const dpr=Math.min(devicePixelRatio,2); const w=chartCanvas.width, h=chartCanvas.height;
-    chartCtx.clearRect(0,0,w,h); if (chartData.length<2) return;
-    const K=chartData.map(d=>d.K), U=chartData.map(d=>d.U), T=chartData.map(d=>d.T);
-    const minY=Math.min(...K,...U,...T), maxY=Math.max(...K,...U,...T);
-    const pad=10*dpr; const xStep=(w-2*pad)/(chartData.length-1);
-    const mapY=v=> h - pad - (v-minY)/(maxY-minY+1e-9)*(h-2*pad);
-    function series(arr, color) {{ chartCtx.beginPath(); chartCtx.lineWidth=2*dpr; chartCtx.strokeStyle=color; chartCtx.moveTo(pad,mapY(arr[0])); for (let i=1;i<arr.length;i++) chartCtx.lineTo(pad+i*xStep,mapY(arr[i])); chartCtx.stroke(); }}
-    series(K,'#6fc2ff'); series(U,'#f6d06f'); series(T,'#a9f56f');
-  }}
-
-  function renderTrails(dt) {{
-    const w = trailCanvas.width, h = trailCanvas.height;
-    if (state.trailSeconds<=0) {{ trailCtx.clearRect(0,0,w,h); return; }}
-    const decay = Math.max(0, 1 - dt*(1/state.trailSeconds));
-    trailCtx.globalCompositeOperation = 'source-over';
-    trailCtx.fillStyle = 'rgba(13, 19, 34,' + (1-decay) + ')';
-    trailCtx.fillRect(0,0,w,h);
-    trailCtx.globalCompositeOperation = 'lighter';
-    const v3 = new THREE.Vector3();
-    for (const b of bodies) {{
-      v3.copy(b.mesh.position).project(camera);
-      const x = (v3.x * 0.5 + 0.5) * w;
-      const y = (-v3.y * 0.5 + 0.5) * h;
-      trailCtx.fillStyle = 'rgba(180,200,255,' + (0.4+0.6*state.glowIntensity) + ')';
-      trailCtx.fillRect(x, y, 1.5, 1.5);
-    }}
-  }}
-
-  function updateMetrics() {{
-    const n=bodies.length;
-    const avgR = n? bodies.reduce((s,b)=>s+b.pos.length(),0)/n : 0;
-    const avgV = n? bodies.reduce((s,b)=>s+b.vel.length(),0)/n : 0;
-    document.getElementById('metrics').textContent = [
-      'Version: v2.0.1',
-      'Renderer: ' + (renderer.capabilities.isWebGL2 ? 'WebGL2' : 'WebGL1'),
-      'Bodies: ' + n,
-      'Central Mass: ' + (centralMass/MSUN).toFixed(3) + ' M\u2609',
-      'Avg radius: ' + (avgR/AU).toFixed(3) + ' AU',
-      'Avg speed: ' + (avgV/1000).toFixed(3) + ' km/s',
-      'Collision: ' + state.collisionMode,
-      'Softening ε: ' + state.softening.toFixed(3),
-      'Glow: ' + (state.glow?('On ('+state.glowIntensity.toFixed(2)+')'):'Off'),
-    ].join('\n');
-  }}
-
-  let last = performance.now();
-  function animate() {{
-    requestAnimationFrame(animate);
-    const now = performance.now(); const dt = Math.max(0,(now-last)/1000); last=now;
-    if (state.running) {{
-      const sim = dt*state.timeScale; const steps = Math.max(1, Math.ceil(sim/state.subDt)); const h = sim/steps;
-      for (let s=0;s<steps;s++) stepPhysics(h);
-      sampleEnergy();
-    }}
-    controls.update();
-    renderer.render(scene, camera);
-    renderTrails(dt);
-    drawChart();
-    updateMetrics();
-    if (centralHalo) {{ centralHalo.position.set(0,0,0); centralHalo.material.opacity = state.glow ? state.glowIntensity : 0; }}
-  }}
-  animate();
-
-  resetSystem();
-
-}})();
-</script>
-
 </body>
 </html>
