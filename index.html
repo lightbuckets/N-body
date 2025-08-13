@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>N-Body Playground by Steve Cullen and ChatGPT (v2.5.0-offline)</title>
+<title>N-Body Playground by Steve Cullen and ChatGPT (v2.5.2-offline)</title>
 <style>
   html, body { margin:0; height:100%; background:#0b0f16; color:#e6eef8; font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; }
   #topbar { position:fixed; top:0; left:0; right:0; display:flex; align-items:center; gap:16px; padding:10px 12px; background:#0d1628; border-bottom:1px solid #1a2b4a; z-index:20; }
   #title { font-weight:700; letter-spacing:.3px; }
-  #status { font:12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space:pre; opacity:.9; }
+  #status { font:12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space:pre; opacity:.95; }
   #app { position:fixed; inset:46px 0 0 0; display:grid; grid-template-columns:320px 1fr 360px; }
   #left, #right { background:#0e1320; border-right:1px solid #1a2235; overflow:auto; }
   #right { border-left:1px solid #1a2235; border-right:none; }
@@ -40,7 +40,7 @@
 </head>
 <body>
 <div id="topbar">
-  <div id="title">N-Body Playground by Steve Cullen and ChatGPT (v2.5.0-offline)</div>
+  <div id="title">N-Body Playground by Steve Cullen and ChatGPT (v2.5.2-offline)</div>
   <div id="status">Booting…</div>
 </div>
 
@@ -122,348 +122,359 @@
 
 <script>
 (function(){
-  const statusEl = document.getElementById('status');
-  function setStatus(t,err){ statusEl.textContent=t; statusEl.style.color=err?'#ff7b7b':''; }
-
-  const glCanvas = document.getElementById('glCanvas');
-  const trailCanvas = document.getElementById('trailCanvas');
-  const chartCanvas = document.getElementById('chart');
-  const chartCtx = chartCanvas.getContext('2d');
-  const metricsEl = document.getElementById('metrics');
-
-  // Boot check
-  const gl = glCanvas.getContext('webgl', { antialias:true, alpha:false });
-  if(!gl){ setStatus('❌ WebGL not supported by your browser/device', true); return; }
-  setStatus('✅ WebGL OK — initializing…');
-
-  const AU = 1.496e11, MSUN = 1.989e30, G = 6.67430e-11;
-  const $ = id => document.getElementById(id);
-
-  const state = {
-    n: parseInt($('nStars').value,10),
-    radiusAU: parseFloat($('radiusAU').value),
-    initV_kms: parseFloat($('initV').value),
-    mMinMSun: parseFloat($('mMin').value),
-    mMaxMSun: parseFloat($('mMax').value),
-    softAU: parseFloat($('softening').value),
-    collisionMode: $('collisionMode').value,
-    trailSeconds: parseFloat($('trailSeconds').value),
-    glow: $('glowMode').value==='on',
-    glowIntensity: parseFloat($('glowIntensity').value),
-    running:true, timeScale: parseFloat($('timeScale').value), subDt:0.02
-  };
-  let centralMass = parseFloat($('mCentral').value)*MSUN;
-
-  function link(rangeId, numId, cb){
-    const r=$(rangeId), n=$(numId);
-    function sync(fr){ if(fr) n.value=r.value; else r.value=n.value; cb(parseFloat(r.value)); }
-    r.addEventListener('input',()=>sync(true)); n.addEventListener('input',()=>sync(false)); sync(true);
+  function reportError(err){
+    const statusEl = document.getElementById('status');
+    statusEl.textContent = '❌ Error: ' + (err && err.message ? err.message : err);
+    statusEl.style.color = '#ff8383';
+    console.error(err);
   }
-  link('nStars','nStarsNum', v=>{ state.n=v|0; resetSystem(); });
-  link('radiusAU','radiusAUNum', v=>{ state.radiusAU=v; resetSystem(); });
-  link('initV','initVNum', v=>{ state.initV_kms=v; resetSystem(); });
-  link('mMin','mMinNum', v=>{ state.mMinMSun=v; resetSystem(); });
-  link('mMax','mMaxNum', v=>{ state.mMaxMSun=v; resetSystem(); });
-  link('softening','softeningNum', v=>{ state.softAU=v; });
-  link('timeScale','timeScaleNum', v=>{ state.timeScale=v; });
-  $('collisionMode').addEventListener('change', e=>state.collisionMode=e.target.value);
-  $('trailPreset').addEventListener('change', e=>{ const map={none:0,short:6,long:24,ultra:60}; const v=map[e.target.value]; $('trailSeconds').value=v; $('trailSecondsNum').value=v; state.trailSeconds=v; });
-  $('glowMode').addEventListener('change', e=>{ state.glow = e.target.value==='on'; });
-  $('glowIntensity').addEventListener('input', e=>{ state.glowIntensity=parseFloat(e.target.value); });
-  link('mCentral','mCentralNum', v=>{ centralMass=v*MSUN; resetSystem(); });
+  try{
+    const statusEl = document.getElementById('status');
+    function setStatus(t,err){ statusEl.textContent=t; statusEl.style.color=err?'#ff7b7b':''; }
 
-  $('btnStart').onclick=()=>state.running=true;
-  $('btnPause').onclick=()=>state.running=false;
-  $('btnReset').onclick=()=>resetSystem();
-  $('btnAutoFit').onclick=()=>autoFit();
-  $('btnClear').onclick=()=>{ tctx.clearRect(0,0,trailCanvas.width, trailCanvas.height); };
+    const glCanvas = document.getElementById('glCanvas');
+    const trailCanvas = document.getElementById('trailCanvas');
+    const chartCanvas = document.getElementById('chart');
+    const chartCtx = chartCanvas.getContext('2d');
+    const metricsEl = document.getElementById('metrics');
 
-  const tctx = trailCanvas.getContext('2d');
+    // Boot check
+    const gl = glCanvas.getContext('webgl', { antialias:true, alpha:false });
+    if(!gl){ setStatus('❌ WebGL not supported by your browser/device', true); return; }
+    setStatus('✅ WebGL OK — initializing…');
 
-  function resizeAll(){
-    const vp = document.getElementById('viewport');
-    const w = vp.clientWidth||1, h=vp.clientHeight||1;
-    gl.canvas.width=w; gl.canvas.height=h; gl.viewport(0,0,w,h);
-    trailCanvas.width=w; trailCanvas.height=h;
-    const dpr = Math.min(devicePixelRatio,2);
-    const chartW=520, chartH=140; chartCanvas.width=chartW*dpr; chartCanvas.height=chartH*dpr; chartCanvas.style.width=chartW+'px'; chartCanvas.style.height=chartH+'px';
-  } window.addEventListener('resize', resizeAll); resizeAll();
+    // Constants
+    const AU = 1.496e11, MSUN = 1.989e30, G = 6.67430e-11;
+    const $ = id => document.getElementById(id);
 
-  // --- Shaders (points with glow)
-  const vs = `
-  attribute vec3 aPos; attribute float aSize; attribute vec3 aColor;
-  uniform mat4 uProj, uView; varying vec3 vColor;
-  void main(){
-    vColor = aColor;
-    gl_Position = uProj * uView * vec4(aPos,1.0);
-    gl_PointSize = aSize / max(gl_Position.w, 0.0001);
-  }`;
-  const fs = `
-  precision mediump float; varying vec3 vColor;
-  uniform float uGlow;
-  void main(){
-    vec2 p = gl_PointCoord*2.0-1.0;
-    float r = dot(p,p);
-    if(r>1.0) discard;
-    float core = smoothstep(1.0, 0.5, 1.0 - r);
-    float glow = exp(-r*3.0) * uGlow;
-    gl_FragColor = vec4(vColor*(0.6+glow), core*(0.85+0.15*uGlow));
-  }`;
-  function compile(src, type){ const s=gl.createShader(type); gl.shaderSource(s,src); gl.compileShader(s); if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; }
-  function program(vsSrc, fsSrc){ const p=gl.createProgram(); gl.attachShader(p,compile(vsSrc,gl.VERTEX_SHADER)); gl.attachShader(p,compile(fsSrc,gl.FRAGMENT_SHADER)); gl.linkProgram(p); if(!gl.getProgramParameter(p,gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p)); return p; }
-  const prog = program(vs,fs); gl.useProgram(prog);
-  const loc = {
-    aPos: gl.getAttribLocation(prog,'aPos'),
-    aSize: gl.getAttribLocation(prog,'aSize'),
-    aColor: gl.getAttribLocation(prog,'aColor'),
-    uProj: gl.getUniformLocation(prog,'uProj'),
-    uView: gl.getUniformLocation(prog,'uView'),
-    uGlow: gl.getUniformLocation(prog,'uGlow')
-  };
+    const state = {
+      n: parseInt($('nStars').value,10),
+      radiusAU: parseFloat($('radiusAU').value),
+      initV_kms: parseFloat($('initV').value),
+      mMinMSun: parseFloat($('mMin').value),
+      mMaxMSun: parseFloat($('mMax').value),
+      softAU: parseFloat($('softening').value),
+      collisionMode: $('collisionMode').value,
+      trailSeconds: parseFloat($('trailSeconds').value),
+      glow: $('glowMode').value==='on',
+      glowIntensity: parseFloat($('glowIntensity').value),
+      running:true, timeScale: parseFloat($('timeScale').value), subDt:0.02
+    };
+    let centralMass = parseFloat($('mCentral').value)*MSUN;
 
-  // --- Minimal math & trackball
-  function mat4(){ return new Float32Array(16); }
-  function perspective(fovy, aspect, near, far){ const f=1/Math.tan(fovy/2), nf=1/(near-far); const m=mat4();
-    m[0]=f/aspect; m[5]=f; m[10]=(far+near)*nf; m[11]=-1; m[14]=(2*far*near)*nf; m[15]=0; return m; }
-  function lookAt(eye, tgt, up){
-    const z = norm(sub(eye,tgt));
-    const x = norm(cross(up,z));
-    const y = cross(z,x);
-    const m = mat4();
-    m[0]=x[0]; m[1]=y[0]; m[2]=z[0]; m[3]=0;
-    m[4]=x[1]; m[5]=y[1]; m[6]=z[1]; m[7]=0;
-    m[8]=x[2]; m[9]=y[2]; m[10]=z[2]; m[11]=0;
-    m[12]=-dot(x,eye); m[13]=-dot(y,eye); m[14]=-dot(z,eye); m[15]=1;
-    return m;
-  }
-  function v3(x,y,z){ return new Float32Array([x,y,z]); }
-  function add(a,b){ return v3(a[0]+b[0],a[1]+b[1],a[2]+b[2]); }
-  function sub(a,b){ return v3(a[0]-b[0],a[1]-b[1],a[2]-b[2]); }
-  function dot(a,b){ return a[0]*b[0]+a[1]*b[1]+a[2]*b[2]; }
-  function cross(a,b){ return v3(a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]); }
-  function len(a){ return Math.hypot(a[0],a[1],a[2]); }
-  function norm(a){ const l=len(a)||1; return v3(a[0]/l,a[1]/l,a[2]/l); }
-
-  let target = v3(0,0,0), sphR=18, sphPhi=Math.PI/2.2, sphTheta=0.9;
-  function camPos(){ return v3(
-    target[0] + sphR*Math.sin(sphTheta)*Math.sin(sphPhi),
-    target[1] + sphR*Math.cos(sphPhi),
-    target[2] + sphR*Math.cos(sphTheta)*Math.sin(sphPhi)
-  );}
-
-  let mouseMode='none', sx=0, sy=0;
-  glCanvas.addEventListener('contextmenu', e=>e.preventDefault());
-  glCanvas.addEventListener('mousedown', e=>{ sx=e.clientX; sy=e.clientY; const panBtn = (e.button===1||e.button===2)||e.shiftKey; mouseMode = panBtn ? 'pan' : 'rot'; });
-  window.addEventListener('mouseup', ()=>mouseMode='none');
-  window.addEventListener('mousemove', e=>{
-    if(mouseMode==='none') return;
-    const dx=e.clientX-sx, dy=e.clientY-sy; sx=e.clientX; sy=e.clientY;
-    if(mouseMode==='rot'){ sphTheta -= dx*0.005; sphPhi += dy*0.005; sphPhi=Math.max(0.001,Math.min(Math.PI-0.001,sphPhi)); }
-    else if(mouseMode==='pan'){ const r=sphR; target[0] += (-dx*0.002*r); target[1] += (dy*0.002*r); }
-  });
-  glCanvas.addEventListener('wheel', e=>{ e.preventDefault(); const f=Math.exp((e.deltaY>0?1:-1)*0.1); sphR = Math.max(2, sphR*f); }, {passive:false});
-
-  // --- Data buffers (AU units)
-  let N=state.n;
-  let pos, vel, size, col, mass;
-  const bPos = gl.createBuffer(), bSize = gl.createBuffer(), bCol = gl.createBuffer();
-
-  function colorFromMass(mSun){
-    const t = Math.max(0, Math.min(1, (Math.log10(mSun+1e-6)+6)/6 ));
-    return [1.0, (0.7+0.25*t), (0.5+0.5*(1-t))];
-  }
-  function starRadiusAU_fromMass(mkg){ const RSun=6.9634e8; const r=RSun*Math.pow(mkg/MSUN,0.8); return (r/AU)*12; }
-  function centralRadiusAU(mkg){ const RSun=6.9634e8; const r=RSun*Math.pow(mkg/MSUN,0.8); return (r/AU)*20; }
-
-  function resetSystem(){
-    N = state.n;
-    pos = new Float32Array((N+1)*3);
-    vel = new Float32Array((N+1)*3); // AU/s
-    size= new Float32Array(N+1);
-    col = new Float32Array((N+1)*3);
-    mass= new Float32Array(N+1);
-    // central
-    pos[0]=0; pos[1]=0; pos[2]=0;
-    size[0]=Math.max(6, Math.min(140, centralRadiusAU(centralMass)*160)); // px approx
-    col[0]=1.0; col[1]=0.82; col[2]=0.48;
-    mass[0]=centralMass;
-    // stars
-    const R = state.radiusAU; // AU
-    for(let i=1;i<=N;i++){
-      let x,y,z; do{ x=(Math.random()*2-1)*R; y=(Math.random()*2-1)*R; z=(Math.random()*2-1)*R; } while(x*x+y*y+z*z>R*R);
-      const j=i*3; pos[j]=x; pos[j+1]=y; pos[j+2]=z;
-      const m = (state.mMinMSun + Math.random()*(state.mMaxMSun-state.mMinMSun)) * MSUN; mass[i]=m;
-      const rAU = Math.max(starRadiusAU_fromMass(m), 0.002);
-      size[i]= Math.max(2, rAU*100);
-      const c = colorFromMass(m/MSUN); col[3*i]=c[0]; col[3*i+1]=c[1]; col[3*i+2]=c[2];
-      const v0_AUps = (state.initV_kms*1000)/AU; // AU/s
-      if(v0_AUps!==0){
-        const L = Math.hypot(x,y,z)||1; const ax=y/L, ay=-x/L, az=0;
-        vel[j]=ax*v0_AUps; vel[j+1]=ay*v0_AUps; vel[j+2]=az*v0_AUps;
-      }
+    function link(rangeId, numId, cb){
+      const r=$(rangeId), n=$(numId);
+      function sync(fr){ if(fr) n.value=r.value; else r.value=n.value; cb(parseFloat(r.value)); }
+      r.addEventListener('input',()=>sync(true)); n.addEventListener('input',()=>sync(false)); sync(true);
     }
-    upload();
-    chartData.length=0;
-    tctx.clearRect(0,0,trailCanvas.width, trailCanvas.height);
-    autoFit();
-  }
+    link('nStars','nStarsNum', v=>{ state.n=v|0; resetSystem(); });
+    link('radiusAU','radiusAUNum', v=>{ state.radiusAU=v; resetSystem(); });
+    link('initV','initVNum', v=>{ state.initV_kms=v; resetSystem(); });
+    link('mMin','mMinNum', v=>{ state.mMinMSun=v; resetSystem(); });
+    link('mMax','mMaxNum', v=>{ state.mMaxMSun=v; resetSystem(); });
+    link('softening','softeningNum', v=>{ state.softAU=v; });
+    link('timeScale','timeScaleNum', v=>{ state.timeScale=v; });
+    $('collisionMode').addEventListener('change', e=>state.collisionMode=e.target.value);
+    $('trailPreset').addEventListener('change', e=>{ const map={none:0,short:6,long:24,ultra:60}; const v=map[e.target.value]; $('trailSeconds').value=v; $('trailSecondsNum').value=v; state.trailSeconds=v; });
+    $('glowMode').addEventListener('change', e=>{ state.glow = e.target.value==='on'; });
+    $('glowIntensity').addEventListener('input', e=>{ state.glowIntensity=parseFloat(e.target.value); });
+    link('mCentral','mCentralNum', v=>{ centralMass=v*MSUN; resetSystem(); });
 
-  function upload(){
-    gl.bindBuffer(gl.ARRAY_BUFFER, bPos); gl.bufferData(gl.ARRAY_BUFFER, pos, gl.DYNAMIC_DRAW); gl.enableVertexAttribArray(loc.aPos); gl.vertexAttribPointer(loc.aPos,3,gl.FLOAT,false,0,0);
-    gl.bindBuffer(gl.ARRAY_BUFFER, bSize); gl.bufferData(gl.ARRAY_BUFFER, size, gl.DYNAMIC_DRAW); gl.enableVertexAttribArray(loc.aSize); gl.vertexAttribPointer(loc.aSize,1,gl.FLOAT,false,0,0);
-    gl.bindBuffer(gl.ARRAY_BUFFER, bCol); gl.bufferData(gl.ARRAY_BUFFER, col, gl.DYNAMIC_DRAW); gl.enableVertexAttribArray(loc.aColor); gl.vertexAttribPointer(loc.aColor,3,gl.FLOAT,false,0,0);
-  }
+    $('btnStart').onclick=()=>state.running=true;
+    $('btnPause').onclick=()=>state.running=false;
+    $('btnReset').onclick=()=>resetSystem();
+    $('btnAutoFit').onclick=()=>autoFit();
+    $('btnClear').onclick=()=>{ tctx.clearRect(0,0,trailCanvas.width, trailCanvas.height); };
 
-  function autoFit(){ sphR = Math.max(8, state.radiusAU*3); sphPhi = Math.PI/2.4; sphTheta = 0.9; target=v3(0,0,0); }
+    const tctx = trailCanvas.getContext('2d');
 
-  // --- Physics (AU units)
-  function stepPhysics(h){
-    const eps2 = (state.softAU)*(state.softAU);
-    const GM_AU = (G*centralMass)/(AU*AU*AU); // AU^3 / s^2
-    for(let i=1;i<=N;i++){
-      const j=i*3;
-      const x=pos[j], y=pos[j+1], z=pos[j+2];
-      const r2=x*x+y*y+z*z+eps2; const r=Math.sqrt(r2)||1;
-      const ax = -GM_AU * x / (r*r*r);
-      const ay = -GM_AU * y / (r*r*r);
-      const az = -GM_AU * z / (r*r*r);
-      vel[j]   += ax*h;
-      vel[j+1] += ay*h;
-      vel[j+2] += az*h;
-      pos[j]   += vel[j]*h;
-      pos[j+1] += vel[j+1]*h;
-      pos[j+2] += vel[j+2]*h;
-      // bounce on central sphere
-      const cR = centralRadiusAU(centralMass);
-      if(r < cR){
-        const nx=x/r, ny=y/r, nz=z/r;
-        const vn = vel[j]*nx + vel[j+1]*ny + vel[j+2]*nz;
-        vel[j]   -= 2*vn*nx; vel[j+1]-=2*vn*ny; vel[j+2]-=2*vn*nz;
-        pos[j]=nx*(cR*1.01); pos[j+1]=ny*(cR*1.01); pos[j+2]=nz*(cR*1.01);
-      }
+    function resizeAll(){
+      const vp = document.getElementById('viewport');
+      const w = vp.clientWidth||1, h=vp.clientHeight||1;
+      gl.canvas.width=w; gl.canvas.height=h; gl.viewport(0,0,w,h);
+      trailCanvas.width=w; trailCanvas.height=h;
+      const dpr = Math.min(devicePixelRatio,2);
+      const chartW=520, chartH=140; chartCanvas.width=chartW*dpr; chartCanvas.height=chartH*dpr; chartCanvas.style.width=chartW+'px'; chartCanvas.style.height=chartH+'px';
+    } window.addEventListener('resize', resizeAll); resizeAll();
+
+    // --- Shaders
+    const vs = `
+    attribute vec3 aPos; attribute float aSize; attribute vec3 aColor;
+    uniform mat4 uProj, uView; varying vec3 vColor;
+    void main(){
+      vColor = aColor;
+      gl_Position = uProj * uView * vec4(aPos,1.0);
+      gl_PointSize = aSize / max(gl_Position.w, 0.0001);
+    }`;
+    const fs = `
+    precision mediump float; varying vec3 vColor;
+    uniform float uGlow;
+    void main(){
+      vec2 p = gl_PointCoord*2.0-1.0;
+      float r = dot(p,p);
+      if(r>1.0) discard;
+      float core = smoothstep(1.0, 0.5, 1.0 - r);
+      float glow = exp(-r*3.0) * uGlow;
+      gl_FragColor = vec4(vColor*(0.6+glow), core*(0.85+0.15*uGlow));
+    }`;
+    function compile(src, type){ const s=gl.createShader(type); gl.shaderSource(s,src); gl.compileShader(s); if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; }
+    function program(vsSrc, fsSrc){ const p=gl.createProgram(); gl.attachShader(p,compile(vsSrc,gl.VERTEX_SHADER)); gl.attachShader(p,compile(fsSrc,gl.FRAGMENT_SHADER)); gl.linkProgram(p); if(!gl.getProgramParameter(p,gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p)); return p; }
+    const prog = program(vs,fs); gl.useProgram(prog);
+    const loc = {
+      aPos: gl.getAttribLocation(prog,'aPos'),
+      aSize: gl.getAttribLocation(prog,'aSize'),
+      aColor: gl.getAttribLocation(prog,'aColor'),
+      uProj: gl.getUniformLocation(prog,'uProj'),
+      uView: gl.getUniformLocation(prog,'uView'),
+      uGlow: gl.getUniformLocation(prog,'uGlow')
+    };
+
+    // --- Math & trackball
+    function mat4(){ return new Float32Array(16); }
+    function perspective(fovy, aspect, near, far){ const f=1/Math.tan(fovy/2), nf=1/(near-far); const m=mat4();
+      m[0]=f/aspect; m[5]=f; m[10]=(far+near)*nf; m[11]=-1; m[14]=(2*far*near)*nf; m[15]=0; return m; }
+    function lookAt(eye, tgt, up){
+      const z = norm(sub(eye,tgt));
+      const x = norm(cross(up,z));
+      const y = cross(z,x);
+      const m = mat4();
+      m[0]=x[0]; m[1]=y[0]; m[2]=z[0]; m[3]=0;
+      m[4]=x[1]; m[5]=y[1]; m[6]=z[1]; m[7]=0;
+      m[8]=x[2]; m[9]=y[2]; m[10]=z[2]; m[11]=0;
+      m[12]=-dot(x,eye); m[13]=-dot(y,eye); m[14]=-dot(z,eye); m[15]=1;
+      return m;
     }
-    if(state.collisionMode!=='none'){
-      for(let i=1;i<=N;i++) for(let k=i+1;k<=N;k++){
-        const ia=i*3, ka=k*3;
-        const dx=pos[ia]-pos[ka], dy=pos[ia+1]-pos[ka+1], dz=pos[ia+2]-pos[ka+2];
-        const d = Math.hypot(dx,dy,dz); const Ri=size[i]/120, Rk=size[k]/120; // approx
-        if(d < (Ri+Rk)){
-          if(state.collisionMode==='elastic'){
-            const nx=dx/(d||1), ny=dy/(d||1), nz=dz/(d||1);
-            const va = vel[ia]*nx+vel[ia+1]*ny+vel[ia+2]*nz;
-            const vb = vel[ka]*nx+vel[ka+1]*ny+vel[ka+2]*nz;
-            const ma=mass[i], mb=mass[k];
-            const va2=(va*(ma-mb)+2*mb*vb)/(ma+mb);
-            const vb2=(vb*(mb-ma)+2*ma*va)/(ma+mb);
-            const dva=va2-va, dvb=vb2-vb;
-            vel[ia]+=dva*nx; vel[ia+1]+=dva*ny; vel[ia+2]+=dva*nz;
-            vel[ka]+=dvb*nx; vel[ka+1]+=dvb*ny; vel[ka+2]+=dvb*nz;
-          } else if(state.collisionMode==='merge'){
-            const ma=mass[i], mb=mass[k]; const m=ma+mb;
-            const vax=vel[ia], vay=vel[ia+1], vaz=vel[ia+2];
-            const vbx=vel[ka], vby=vel[ka+1], vbz=vel[ka+2];
-            vel[ia]=(vax*ma+vbx*mb)/m; vel[ia+1]=(vay*ma+vby*mb)/m; vel[ia+2]=(vaz*ma+vbz*mb)/m;
-            mass[i]=m; // hide k
-            pos[ka]=pos[ka+1]=pos[ka+2]=1e9;
+    function v3(x,y,z){ return new Float32Array([x,y,z]); }
+    function add(a,b){ return v3(a[0]+b[0],a[1]+b[1],a[2]+b[2]); }
+    function sub(a,b){ return v3(a[0]-b[0],a[1]-b[1],a[2]-b[2]); }
+    function dot(a,b){ return a[0]*b[0]+a[1]*b[1]+a[2]*b[2]; }
+    function cross(a,b){ return v3(a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]); }
+    function len(a){ return Math.hypot(a[0],a[1],a[2]); }
+    function norm(a){ const l=len(a)||1; return v3(a[0]/l,a[1]/l,a[2]/l); }
+
+    let target = v3(0,0,0), sphR=18, sphPhi=Math.PI/2.2, sphTheta=0.9;
+    function camPos(){ return v3(
+      target[0] + sphR*Math.sin(sphTheta)*Math.sin(sphPhi),
+      target[1] + sphR*Math.cos(sphPhi),
+      target[2] + sphR*Math.cos(sphTheta)*Math.sin(sphPhi)
+    );}
+
+    let mouseMode='none', sx=0, sy=0;
+    glCanvas.addEventListener('contextmenu', e=>e.preventDefault());
+    glCanvas.addEventListener('mousedown', e=>{ sx=e.clientX; sy=e.clientY; const panBtn = (e.button===1||e.button===2)||e.shiftKey; mouseMode = panBtn ? 'pan' : 'rot'; });
+    window.addEventListener('mouseup', ()=>mouseMode='none');
+    window.addEventListener('mousemove', e=>{
+      if(mouseMode==='none') return;
+      const dx=e.clientX-sx, dy=e.clientY-sy; sx=e.clientX; sy=e.clientY;
+      if(mouseMode==='rot'){ sphTheta -= dx*0.005; sphPhi += dy*0.005; sphPhi=Math.max(0.001,Math.min(Math.PI-0.001,sphPhi)); }
+      else if(mouseMode==='pan'){ const r=sphR; target[0] += (-dx*0.002*r); target[1] += (dy*0.002*r); }
+    });
+    glCanvas.addEventListener('wheel', e=>{ e.preventDefault(); const f=Math.exp((e.deltaY>0?1:-1)*0.1); sphR = Math.max(2, sphR*f); }, {passive:false});
+
+    // --- Data buffers (AU units)
+    let N=state.n;
+    let pos, vel, size, col, mass;
+    const bPos = gl.createBuffer(), bSize = gl.createBuffer(), bCol = gl.createBuffer();
+
+    function colorFromMass(mSun){
+      const t = Math.max(0, Math.min(1, (Math.log10(mSun+1e-6)+6)/6 ));
+      return [1.0, (0.7+0.25*t), (0.5+0.5*(1-t))];
+    }
+    function starRadiusAU_fromMass(mkg){ const RSun=6.9634e8; const r=RSun*Math.pow(mkg/MSUN,0.8); return (r/AU)*12; }
+    function centralRadiusAU(mkg){ const RSun=6.9634e8; const r=RSun*Math.pow(mkg/MSUN,0.8); return (r/AU)*20; }
+
+    function resetSystem(){
+      N = state.n;
+      pos = new Float32Array((N+1)*3);
+      vel = new Float32Array((N+1)*3); // AU/s
+      size= new Float32Array(N+1);
+      col = new Float32Array((N+1)*3);
+      mass= new Float32Array(N+1);
+      // central
+      pos[0]=0; pos[1]=0; pos[2]=0;
+      size[0]=Math.max(6, Math.min(140, centralRadiusAU(centralMass)*160));
+      col[0]=1.0; col[1]=0.82; col[2]=0.48;
+      mass[0]=centralMass;
+      // stars
+      const R = state.radiusAU; // AU
+      for(let i=1;i<=N;i++){
+        let x,y,z; do{ x=(Math.random()*2-1)*R; y=(Math.random()*2-1)*R; z=(Math.random()*2-1)*R; } while(x*x+y*y+z*z>R*R);
+        const j=i*3; pos[j]=x; pos[j+1]=y; pos[j+2]=z;
+        const m = (state.mMinMSun + Math.random()*(state.mMaxMSun-state.mMinMSun)) * MSUN; mass[i]=m;
+        const rAU = Math.max(starRadiusAU_fromMass(m), 0.002);
+        size[i]= Math.max(2, rAU*100);
+        const c = colorFromMass(m/MSUN); col[3*i]=c[0]; col[3*i+1]=c[1]; col[3*i+2]=c[2];
+        const v0_AUps = (state.initV_kms*1000)/AU; // AU/s
+        if(v0_AUps!==0){
+          const L = Math.hypot(x,y,z)||1; const ax=y/L, ay=-x/L, az=0;
+          vel[j]=ax*v0_AUps; vel[j+1]=ay*v0_AUps; vel[j+2]=az*v0_AUps;
+        }
+      }
+      upload();
+      chartData.length=0;
+      tctx.clearRect(0,0,trailCanvas.width, trailCanvas.height);
+      autoFit();
+      // Force a first draw so something appears immediately:
+      render();
+      setStatus('✅ Initialized — press Pause/Start as needed');
+    }
+
+    function upload(){
+      gl.bindBuffer(gl.ARRAY_BUFFER, bPos); gl.bufferData(gl.ARRAY_BUFFER, pos, gl.DYNAMIC_DRAW); gl.enableVertexAttribArray(loc.aPos); gl.vertexAttribPointer(loc.aPos,3,gl.FLOAT,false,0,0);
+      gl.bindBuffer(gl.ARRAY_BUFFER, bSize); gl.bufferData(gl.ARRAY_BUFFER, size, gl.DYNAMIC_DRAW); gl.enableVertexAttribArray(loc.aSize); gl.vertexAttribPointer(loc.aSize,1,gl.FLOAT,false,0,0);
+      gl.bindBuffer(gl.ARRAY_BUFFER, bCol); gl.bufferData(gl.ARRAY_BUFFER, col, gl.DYNAMIC_DRAW); gl.enableVertexAttribArray(loc.aColor); gl.vertexAttribPointer(loc.aColor,3,gl.FLOAT,false,0,0);
+    }
+
+    function autoFit(){ sphR = Math.max(8, state.radiusAU*3); sphPhi = Math.PI/2.4; sphTheta = 0.9; target=v3(0,0,0); }
+
+    // --- Physics (AU units)
+    function stepPhysics(h){
+      const eps2 = (state.softAU)*(state.softAU);
+      const GM_AU = (G*centralMass)/(AU*AU*AU); // AU^3 / s^2
+      for(let i=1;i<=N;i++){
+        const j=i*3;
+        const x=pos[j], y=pos[j+1], z=pos[j+2];
+        const r2=x*x+y*y+z*z+eps2; const r=Math.sqrt(r2)||1;
+        const ax = -GM_AU * x / (r*r*r);
+        const ay = -GM_AU * y / (r*r*r);
+        const az = -GM_AU * z / (r*r*r);
+        vel[j]   += ax*h;
+        vel[j+1] += ay*h;
+        vel[j+2] += az*h;
+        pos[j]   += vel[j]*h;
+        pos[j+1] += vel[j+1]*h;
+        pos[j+2] += vel[j+2]*h;
+        const cR = centralRadiusAU(centralMass);
+        if(r < cR){
+          const nx=x/r, ny=y/r, nz=z/r;
+          const vn = vel[j]*nx + vel[j+1]*ny + vel[j+2]*nz;
+          vel[j]   -= 2*vn*nx; vel[j+1]-=2*vn*ny; vel[j+2]-=2*vn*nz;
+          pos[j]=nx*(cR*1.01); pos[j+1]=ny*(cR*1.01); pos[j+2]=nz*(cR*1.01);
+        }
+      }
+      if(state.collisionMode!=='none'){
+        for(let i=1;i<=N;i++) for(let k=i+1;k<=N;k++){
+          const ia=i*3, ka=k*3;
+          const dx=pos[ia]-pos[ka], dy=pos[ia+1]-pos[ka+1], dz=pos[ia+2]-pos[ka+2];
+          const d = Math.hypot(dx,dy,dz); const Ri=size[i]/120, Rk=size[k]/120;
+          if(d < (Ri+Rk)){
+            if(state.collisionMode==='elastic'){
+              const nx=dx/(d||1), ny=dy/(d||1), nz=dz/(d||1);
+              const va = vel[ia]*nx+vel[ia+1]*ny+vel[ia+2]*nz;
+              const vb = vel[ka]*nx+vel[ka+1]*ny+vel[ka+2]*nz;
+              const ma=mass[i], mb=mass[k];
+              const va2=(va*(ma-mb)+2*mb*vb)/(ma+mb);
+              const vb2=(vb*(mb-ma)+2*ma*va)/(ma+mb);
+              const dva=va2-va, dvb=vb2-vb;
+              vel[ia]+=dva*nx; vel[ia+1]+=dva*ny; vel[ia+2]+=dva*nz;
+              vel[ka]+=dvb*nx; vel[ka+1]+=dvb*ny; vel[ka+2]+=dvb*nz;
+            } else if(state.collisionMode==='merge'){
+              const ma=mass[i], mb=mass[k]; const m=ma+mb;
+              const vax=vel[ia], vay=vel[ia+1], vaz=vel[ia+2];
+              const vbx=vel[ka], vby=vel[ka+1], vbz=vel[ka+2];
+              vel[ia]=(vax*ma+vbx*mb)/m; vel[ia+1]=(vay*ma+vby*mb)/m; vel[ia+2]=(vaz*ma+vbz*mb)/m;
+              mass[i]=m; // hide k
+              pos[ka]=pos[ka+1]=pos[ka+2]=1e9;
+            }
           }
         }
       }
     }
-  }
 
-  // --- Energy chart
-  let chartData=[]; const chartMax=600;
-  function sampleEnergy(){
-    let K=0, U=0;
-    for(let i=1;i<=N;i++){
-      const j=i*3; const vx=vel[j], vy=vel[j+1], vz=vel[j+2]; const m=mass[i];
-      K += 0.5*m*(vx*vx+vy*vy+vz*vz)*(AU*AU); // AU/s -> m/s
-      const r = Math.hypot(pos[j],pos[j+1],pos[j+2])*AU;
-      U += -G*centralMass*m/Math.max(r,1);
+    // --- Energy chart (SINGLE declaration — fix for earlier bug)
+    let chartData=[]; const chartMax=600;
+    function sampleEnergy(){
+      let K=0, U=0;
+      for(let i=1;i<=N;i++){
+        const j=i*3; const vx=vel[j], vy=vel[j+1], vz=vel[j+2]; const m=mass[i];
+        K += 0.5*m*(vx*vx+vy*vy+vz*vz)*(AU*AU);
+        const r = Math.hypot(pos[j],pos[j+1],pos[j+2])*AU;
+        U += -G*centralMass*m/Math.max(r,1);
+      }
+      chartData.push([K,U,K+U]); if(chartData.length>chartMax) chartData.shift();
     }
-    chartData.push([K,U,K+U]); if(chartData.length>chartMax) chartData.shift();
-  }
-  function drawChart(){
-    const dpr=Math.min(devicePixelRatio,2); const w=chartCanvas.width,h=chartCanvas.height;
-    chartCtx.clearRect(0,0,w,h); if(chartData.length<2) return;
-    const K=chartData.map(d=>d[0]), U=chartData.map(d=>d[1]), T=chartData.map(d=>d[2]);
-    const minY=Math.min(...K,...U,...T), maxY=Math.max(...K,...U,...T);
-    const pad=10*dpr; const xs=(w-2*pad)/(chartData.length-1);
-    const mapY=v=> h - pad - (v-minY)/(maxY-minY+1e-9)*(h-2*pad);
-    function series(arr, col){ chartCtx.beginPath(); chartCtx.lineWidth=2*dpr; chartCtx.strokeStyle=col; chartCtx.moveTo(pad,mapY(arr[0])); for(let i=1;i<arr.length;i++) chartCtx.lineTo(pad+i*xs,mapY(arr[i])); chartCtx.stroke(); }
-    series(K,'#6fc2ff'); series(U,'#f6d06f'); series(T,'#a9f56f');
-  }
-
-  // --- Trails (2D overlay)
-  function renderTrails(dt){
-    const w=trailCanvas.width, h=trailCanvas.height;
-    if(state.trailSeconds<=0){ tctx.clearRect(0,0,w,h); return; }
-    const decay=Math.max(0,1 - dt*(1/state.trailSeconds));
-    tctx.globalCompositeOperation='source-over'; tctx.fillStyle='rgba(13,19,34,'+(1-decay)+')'; tctx.fillRect(0,0,w,h);
-    tctx.globalCompositeOperation='lighter';
-    // project to screen
-    const proj = perspective(Math.PI/3, gl.canvas.width/gl.canvas.height, 0.01, 5000.0);
-    const eye = camPos(); const view = lookAt(eye, v3(0,0,0), v3(0,1,0));
-    function project(x,y,z){
-      const vx = view[0]*x + view[4]*y + view[8]*z + view[12];
-      const vy = view[1]*x + view[5]*y + view[9]*z + view[13];
-      const vz = view[2]*x + view[6]*y + view[10]*z + view[14];
-      const vw = view[3]*x + view[7]*y + view[11]*z + view[15];
-      const px = proj[0]*vx + proj[4]*vy + proj[8]*vz + proj[12]*vw;
-      const py = proj[1]*vx + proj[5]*vy + proj[9]*vz + proj[13]*vw;
-      const pw = proj[3]*vx + proj[7]*vy + proj[11]*vz + proj[15]*vw;
-      return [ (px/pw*0.5+0.5)*w, (-py/pw*0.5+0.5)*h ];
+    function drawChart(){
+      const dpr=Math.min(devicePixelRatio,2); const w=chartCanvas.width,h=chartCanvas.height;
+      chartCtx.clearRect(0,0,w,h); if(chartData.length<2) return;
+      const K=chartData.map(d=>d[0]), U=chartData.map(d=>d[1]), T=chartData.map(d=>d[2]);
+      const minY=Math.min(...K,...U,...T), maxY=Math.max(...K,...U,...T);
+      const pad=10*dpr; const xs=(w-2*pad)/(chartData.length-1);
+      const mapY=v=> h - pad - (v-minY)/(maxY-minY+1e-9)*(h-2*pad);
+      function series(arr, col){ chartCtx.beginPath(); chartCtx.lineWidth=2*dpr; chartCtx.strokeStyle=col; chartCtx.moveTo(pad,mapY(arr[0])); for(let i=1;i<arr.length;i++) chartCtx.lineTo(pad+i*xs,mapY(arr[i])); chartCtx.stroke(); }
+      series(K,'#6fc2ff'); series(U,'#f6d06f'); series(T,'#a9f56f');
     }
-    for(let i=1;i<=N;i++){ const j=i*3; const p=project(pos[j],pos[j+1],pos[j+2]); tctx.fillStyle='rgba(180,200,255,'+(0.25+0.6*state.glowIntensity)+')'; tctx.fillRect(p[0],p[1],1.5,1.5); }
-  }
 
-  function updateMetrics(){
-    let sumR=0,sumV=0; for(let i=1;i<=N;i++){ const j=i*3; sumR+=Math.hypot(pos[j],pos[j+1],pos[j+2]); sumV+=Math.hypot(vel[j],vel[j+1],vel[j+2])*(AU/1000); }
-    metricsEl.textContent = [
-      'Version: v2.5.0-offline',
-      'WebGL: OK',
-      'Bodies: '+N,
-      'Central Mass: '+(centralMass/MSUN).toFixed(3)+' M\u2609',
-      'Avg radius: '+(sumR/Math.max(1,N)).toFixed(3)+' AU',
-      'Avg speed: '+(sumV/Math.max(1,N)).toFixed(3)+' km/s',
-      'Collision: '+state.collisionMode,
-      'Softening ε: '+state.softAU.toFixed(3)+' AU',
-      'Glow: '+(state.glow?('On ('+state.glowIntensity.toFixed(2)+')'):'Off')
-    ].join('\n');
-  }
-
-  function render(){
-    const proj = perspective(Math.PI/3, gl.canvas.width/gl.canvas.height, 0.01, 5000.0);
-    const eye = camPos(); const view = lookAt(eye, v3(0,0,0), v3(0,1,0));
-    gl.useProgram(prog);
-    gl.uniformMatrix4fv(loc.uProj,false,proj);
-    gl.uniformMatrix4fv(loc.uView,false,view);
-    gl.uniform1f(loc.uGlow, state.glow? state.glowIntensity: 0.0);
-    gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-    gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
-    gl.clearColor(0.043,0.059,0.086,1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-    upload();
-    gl.drawArrays(gl.POINTS, 0, N+1);
-  }
-
-  // --- Animate
-  let chartData=[]; const chartMax=600;
-  let last=performance.now();
-  function animate(){
-    requestAnimationFrame(animate);
-    const now=performance.now(); const dt=Math.max(0,(now-last)/1000); last=now;
-    if(state.running){
-      const sim = dt*state.timeScale; const steps=Math.max(1, Math.ceil(sim/state.subDt)); const h=sim/steps;
-      for(let s=0;s<steps;s++) stepPhysics(h);
-      sampleEnergy();
+    // --- Trails
+    function renderTrails(dt){
+      const w=trailCanvas.width, h=trailCanvas.height;
+      if(state.trailSeconds<=0){ tctx.clearRect(0,0,w,h); return; }
+      const decay=Math.max(0,1 - dt*(1/state.trailSeconds));
+      tctx.globalCompositeOperation='source-over'; tctx.fillStyle='rgba(13,19,34,'+(1-decay)+')'; tctx.fillRect(0,0,w,h);
+      tctx.globalCompositeOperation='lighter';
+      const proj = perspective(Math.PI/3, gl.canvas.width/gl.canvas.height, 0.01, 5000.0);
+      const eye = camPos(); const view = lookAt(eye, v3(0,0,0), v3(0,1,0));
+      function project(x,y,z){
+        const vx = view[0]*x + view[4]*y + view[8]*z + view[12];
+        const vy = view[1]*x + view[5]*y + view[9]*z + view[13];
+        const vz = view[2]*x + view[6]*y + view[10]*z + view[14];
+        const vw = view[3]*x + view[7]*y + view[11]*z + view[15];
+        const px = proj[0]*vx + proj[4]*vy + proj[8]*vz + proj[12]*vw;
+        const py = proj[1]*vx + proj[5]*vy + proj[9]*vz + proj[13]*vw;
+        const pw = proj[3]*vx + proj[7]*vy + proj[11]*vz + proj[15]*vw;
+        return [ (px/pw*0.5+0.5)*w, (-py/pw*0.5+0.5)*h ];
+      }
+      for(let i=1;i<=N;i++){ const j=i*3; const p=project(pos[j],pos[j+1],pos[j+2]); tctx.fillStyle='rgba(180,200,255,'+(0.25+0.6*state.glowIntensity)+')'; tctx.fillRect(p[0],p[1],1.5,1.5); }
     }
-    render(); renderTrails(dt); drawChart(); updateMetrics();
-    setStatus('✅ Running — drag to rotate / Shift+drag to pan / wheel to zoom');
-  }
 
-  // Start
-  resetSystem();
-  animate();
+    function updateMetrics(){
+      let sumR=0,sumV=0; for(let i=1;i<=N;i++){ const j=i*3; sumR+=Math.hypot(pos[j],pos[j+1],pos[j+2]); sumV+=Math.hypot(vel[j],vel[j+1],vel[j+2])*(AU/1000); }
+      metricsEl.textContent = [
+        'Version: v2.5.2-offline',
+        'WebGL: OK',
+        'Bodies: '+N,
+        'Central Mass: '+(centralMass/MSUN).toFixed(3)+' M\u2609',
+        'Avg radius: '+(sumR/Math.max(1,N)).toFixed(3)+' AU',
+        'Avg speed: '+(sumV/Math.max(1,N)).toFixed(3)+' km/s',
+        'Collision: '+state.collisionMode,
+        'Softening ε: '+state.softAU.toFixed(3)+' AU',
+        'Glow: '+(state.glow?('On ('+state.glowIntensity.toFixed(2)+')'):'Off')
+      ].join('\n');
+    }
+
+    function render(){
+      const proj = perspective(Math.PI/3, gl.canvas.width/gl.canvas.height, 0.01, 5000.0);
+      const eye = camPos(); const view = lookAt(eye, v3(0,0,0), v3(0,1,0));
+      gl.useProgram(prog);
+      gl.uniformMatrix4fv(loc.uProj,false,proj);
+      gl.uniformMatrix4fv(loc.uView,false,view);
+      gl.uniform1f(loc.uGlow, state.glow? state.glowIntensity: 0.0);
+      gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
+      gl.clearColor(0.043,0.059,0.086,1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+      upload();
+      gl.drawArrays(gl.POINTS, 0, N+1);
+    }
+
+    // --- Animate (single chartData declaration above)
+    let last=performance.now();
+    function animate(){
+      try{
+        requestAnimationFrame(animate);
+        const now=performance.now(); const dt=Math.max(0,(now-last)/1000); last=now;
+        if(state.running){
+          const sim = dt*state.timeScale; const steps=Math.max(1, Math.ceil(sim/state.subDt)); const h=sim/steps;
+          for(let s=0;s<steps;s++) stepPhysics(h);
+          sampleEnergy();
+        }
+        render(); renderTrails(dt); drawChart(); updateMetrics();
+        setStatus('✅ Running — drag to rotate / Shift+drag to pan / wheel to zoom');
+      }catch(loopErr){ reportError(loopErr); }
+    }
+
+    // Start
+    resetSystem();
+    animate();
+  }catch(e){ reportError(e); }
 })();
 </script>
 </body>
