@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>N-Body Playground by Steve Cullen and ChatGPT (v2.5.2-offline)</title>
+<title>N-Body Playground by Steve Cullen and ChatGPT (v2.5.3-offline)</title>
 <style>
   html, body { margin:0; height:100%; background:#0b0f16; color:#e6eef8; font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; }
   #topbar { position:fixed; top:0; left:0; right:0; display:flex; align-items:center; gap:16px; padding:10px 12px; background:#0d1628; border-bottom:1px solid #1a2b4a; z-index:20; }
@@ -40,7 +40,7 @@
 </head>
 <body>
 <div id="topbar">
-  <div id="title">N-Body Playground by Steve Cullen and ChatGPT (v2.5.2-offline)</div>
+  <div id="title">N-Body Playground by Steve Cullen and ChatGPT (v2.5.3-offline)</div>
   <div id="status">Booting…</div>
 </div>
 
@@ -146,6 +146,9 @@
     // Constants
     const AU = 1.496e11, MSUN = 1.989e30, G = 6.67430e-11;
     const $ = id => document.getElementById(id);
+
+    // IMPORTANT: declare chartData BEFORE any call site (resetSystem uses it)
+    let chartData=[]; const chartMax=600;
 
     const state = {
       n: parseInt($('nStars').value,10),
@@ -311,11 +314,10 @@
         }
       }
       upload();
-      chartData.length=0;
+      chartData.length=0;       // SAFE now (declared earlier)
       tctx.clearRect(0,0,trailCanvas.width, trailCanvas.height);
       autoFit();
-      // Force a first draw so something appears immediately:
-      render();
+      render();                 // Force first draw
       setStatus('✅ Initialized — press Pause/Start as needed');
     }
 
@@ -381,8 +383,7 @@
       }
     }
 
-    // --- Energy chart (SINGLE declaration — fix for earlier bug)
-    let chartData=[]; const chartMax=600;
+    // --- Energy chart
     function sampleEnergy(){
       let K=0, U=0;
       for(let i=1;i<=N;i++){
@@ -429,7 +430,7 @@
     function updateMetrics(){
       let sumR=0,sumV=0; for(let i=1;i<=N;i++){ const j=i*3; sumR+=Math.hypot(pos[j],pos[j+1],pos[j+2]); sumV+=Math.hypot(vel[j],vel[j+1],vel[j+2])*(AU/1000); }
       metricsEl.textContent = [
-        'Version: v2.5.2-offline',
+        'Version: v2.5.3-offline',
         'WebGL: OK',
         'Bodies: '+N,
         'Central Mass: '+(centralMass/MSUN).toFixed(3)+' M\u2609',
@@ -455,7 +456,7 @@
       gl.drawArrays(gl.POINTS, 0, N+1);
     }
 
-    // --- Animate (single chartData declaration above)
+    // --- Animate
     let last=performance.now();
     function animate(){
       try{
