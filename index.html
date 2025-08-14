@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>N-Body Playground by Steve Cullen and ChatGPT (v2.8.2-offline)</title>
+<title>N-Body Playground by Steve Cullen and ChatGPT (v2.8.3-offline)</title>
 <style>
 html, body { margin:0; height:100%; background:#000; color:#fff; font-family:Arial, sans-serif; overflow:hidden; }
 #titleBar { position:fixed; top:0; left:0; width:100%; background:#111; padding:8px; font-weight:bold; }
@@ -13,7 +13,7 @@ canvas { display:block; }
 </style>
 </head>
 <body>
-<div id="titleBar">N-Body Playground by Steve Cullen and ChatGPT (v2.8.2-offline) <span id="status">Booting…</span></div>
+<div id="titleBar">N-Body Playground by Steve Cullen and ChatGPT (v2.8.3-offline) <span id="status">Booting…</span></div>
 <div id="metrics">—</div>
 <canvas id="simCanvas"></canvas>
 
@@ -48,7 +48,7 @@ canvas { display:block; }
     function len(a) { return Math.sqrt(a.x*a.x+a.y*a.y+a.z*a.z); }
     function norm(a) { var l=len(a); return l>0?mul(a,1/l):vec3(0,0,0); }
 
-    // Initial minimal system (50 bodies around a central mass), in AU/yr units
+    // Initial system (50 bodies around a central mass)
     var stars = [];
     var N = 50;
     var G = 39.478; // AU^3 / (M_sun * yr^2)
@@ -60,15 +60,14 @@ canvas { display:block; }
         var pos = vec3(r*Math.sin(phi)*Math.cos(theta),
                        r*Math.sin(phi)*Math.sin(theta),
                        r*Math.cos(phi));
-        var velMag = 0.6*Math.sqrt(G*centralMass/r);
+        var velMag = 1.5*Math.sqrt(G*centralMass/r); // increased speed for visible motion
         var velDir = norm(vec3(-pos.y,pos.x,0));
         var vel = mul(velDir,velMag);
         stars.push({ m: Math.random()*0.5+0.5, p: pos, v: vel });
     }
 
-    // Build a tiny throwaway shader program each frame (simple but robust)
     function makeProgram() {
-        var vsSrc = 'attribute vec3 pos; uniform float scale; void main(){ gl_Position=vec4(pos*scale,1.0); gl_PointSize=3.0; }';
+        var vsSrc = 'attribute vec3 pos; void main(){ gl_Position=vec4(pos,1.0); gl_PointSize=3.0; }';
         var fsSrc = 'void main(){ gl_FragColor=vec4(1.0,1.0,1.0,1.0); }';
         function compile(type, src){
             var s=gl.createShader(type); gl.shaderSource(s,src); gl.compileShader(s);
@@ -82,9 +81,9 @@ canvas { display:block; }
         return p;
     }
 
-    var prog=null, locPos=-1, locScale=null, buf=null;
+    var prog=null, locPos=-1, buf=null;
     function ensureGLObjects(){
-        if(!prog){ prog = makeProgram(); locPos=gl.getAttribLocation(prog,'pos'); locScale=gl.getUniformLocation(prog,'scale'); }
+        if(!prog){ prog = makeProgram(); locPos=gl.getAttribLocation(prog,'pos'); }
         if(!buf){ buf = gl.createBuffer(); }
     }
 
@@ -92,10 +91,9 @@ canvas { display:block; }
     function loop(){
         requestAnimationFrame(loop);
         var now=performance.now(); var dt=(now-last)/1000; last=now;
-        var dtYears = dt/ (365.25*24*3600); // seconds -> years (very small, but OK for demo)
+        var dtYears = dt*50; // exaggerate timestep for visible movement
 
         try {
-            // physics: central force only
             for(var i=0;i<stars.length;i++){
                 var dir = sub(vec3(0,0,0), stars[i].p);
                 var r = Math.max(len(dir), 0.05);
@@ -107,11 +105,10 @@ canvas { display:block; }
                 stars[j].p = add(stars[j].p, mul(stars[j].v, dtYears));
             }
 
-            // render points in clip space with a scale so AU map into view
             ensureGLObjects();
             var pts = new Float32Array(stars.length*3);
             for(var k=0;k<stars.length;k++){
-                pts[3*k+0] = stars[k].p.x/10; // simple scale
+                pts[3*k+0] = stars[k].p.x/10;
                 pts[3*k+1] = stars[k].p.y/10;
                 pts[3*k+2] = stars[k].p.z/10;
             }
@@ -119,15 +116,14 @@ canvas { display:block; }
             gl.clearColor(0,0,0,1);
             gl.clear(gl.COLOR_BUFFER_BIT);
             gl.useProgram(prog);
-            gl.uniform1f(locScale, 1.0);
             gl.bindBuffer(gl.ARRAY_BUFFER, buf);
             gl.bufferData(gl.ARRAY_BUFFER, pts, gl.DYNAMIC_DRAW);
             gl.enableVertexAttribArray(locPos);
             gl.vertexAttribPointer(locPos, 3, gl.FLOAT, false, 0, 0);
             gl.drawArrays(gl.POINTS, 0, stars.length);
 
-            metricsEl.textContent = "Version: v2.8.2-offline\nBodies: "+stars.length+"\nCentral mass: "+centralMass.toFixed(2)+" M_sun";
-            statusEl.textContent = "First frame rendered ✅";
+            metricsEl.textContent = "Version: v2.8.3-offline\nBodies: "+stars.length+"\nCentral mass: "+centralMass.toFixed(2)+" M_sun";
+            statusEl.textContent = "Running ✅";
             statusEl.style.color = "#0f0";
         } catch(e){
             statusEl.textContent = "Error: "+e.message;
