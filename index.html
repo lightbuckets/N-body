@@ -3,18 +3,20 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>N-Body Playground by Steve Cullen and ChatGPT (v2.8.3-offline)</title>
+<title>N-Body Playground by Steve Cullen and ChatGPT (v2.8.4-offline)</title>
 <style>
 html, body { margin:0; height:100%; background:#000; color:#fff; font-family:Arial, sans-serif; overflow:hidden; }
 #titleBar { position:fixed; top:0; left:0; width:100%; background:#111; padding:8px; font-weight:bold; }
 #status { font-size:12px; color:#0f0; margin-left:10px; }
-#metrics { position:fixed; right:0; top:30px; background:rgba(0,0,0,0.6); padding:8px; font-size:12px; white-space:pre; }
-canvas { display:block; }
+#metrics { position:fixed; right:0; top:34px; background:rgba(0,0,0,0.6); padding:8px; font-size:12px; white-space:pre; border-radius:6px; }
+#speedWrap { position:fixed; left:10px; top:34px; background:rgba(0,0,0,0.6); padding:6px 8px; font-size:12px; border-radius:6px; }
+#speedWrap input { width:220px; }
 </style>
 </head>
 <body>
-<div id="titleBar">N-Body Playground by Steve Cullen and ChatGPT (v2.8.3-offline) <span id="status">Booting…</span></div>
+<div id="titleBar">N-Body Playground by Steve Cullen and ChatGPT (v2.8.4-offline) <span id="status">Booting…</span></div>
 <div id="metrics">—</div>
+<div id="speedWrap">Sim speed (years / sec): <input id="speed" type="range" min="0.1" max="200" step="0.1" value="20"><span id="speedVal">20</span></div>
 <canvas id="simCanvas"></canvas>
 
 <script>
@@ -36,6 +38,7 @@ canvas { display:block; }
     function resize() {
         canvas.width = window.innerWidth;
         canvas.height = window.innerHeight;
+        gl.viewport(0,0,canvas.width,canvas.height);
     }
     window.addEventListener('resize', resize);
     resize();
@@ -48,26 +51,34 @@ canvas { display:block; }
     function len(a) { return Math.sqrt(a.x*a.x+a.y*a.y+a.z*a.z); }
     function norm(a) { var l=len(a); return l>0?mul(a,1/l):vec3(0,0,0); }
 
-    // Initial system (50 bodies around a central mass)
+    // Params and speed control
+    var SIM_SPEED_YRS_PER_SEC = 20.0;
+    var speedEl = document.getElementById('speed');
+    var speedVal = document.getElementById('speedVal');
+    speedEl.addEventListener('input', function(){ SIM_SPEED_YRS_PER_SEC = parseFloat(speedEl.value); speedVal.textContent = speedEl.value; });
+
+    // Initial system (50 bodies around a central mass), in AU/yr units
     var stars = [];
     var N = 50;
     var G = 39.478; // AU^3 / (M_sun * yr^2)
     var centralMass = 5;
+    var Rinit = 8;
     for(var i=0;i<N;i++) {
-        var r = Math.random()*5+2;
+        var r = Math.random()*(Rinit-2)+2;
         var theta = Math.random()*2*Math.PI;
         var phi = Math.acos(2*Math.random()-1);
         var pos = vec3(r*Math.sin(phi)*Math.cos(theta),
                        r*Math.sin(phi)*Math.sin(theta),
                        r*Math.cos(phi));
-        var velMag = 1.5*Math.sqrt(G*centralMass/r); // increased speed for visible motion
-        var velDir = norm(vec3(-pos.y,pos.x,0));
-        var vel = mul(velDir,velMag);
+        var velMag = 0.95*Math.sqrt(G*centralMass/r); // near-circular
+        var tangent = norm(vec3(-pos.y,pos.x,0));
+        var vel = mul(tangent,velMag);
         stars.push({ m: Math.random()*0.5+0.5, p: pos, v: vel });
     }
 
+    // Minimal shader with scale uniform (auto-fit to view)
     function makeProgram() {
-        var vsSrc = 'attribute vec3 pos; void main(){ gl_Position=vec4(pos,1.0); gl_PointSize=3.0; }';
+        var vsSrc = 'attribute vec3 pos; uniform float scale; void main(){ gl_Position=vec4(pos*scale,1.0); gl_PointSize=3.0; }';
         var fsSrc = 'void main(){ gl_FragColor=vec4(1.0,1.0,1.0,1.0); }';
         function compile(type, src){
             var s=gl.createShader(type); gl.shaderSource(s,src); gl.compileShader(s);
@@ -80,50 +91,60 @@ canvas { display:block; }
         if(!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
         return p;
     }
-
-    var prog=null, locPos=-1, buf=null;
-    function ensureGLObjects(){
-        if(!prog){ prog = makeProgram(); locPos=gl.getAttribLocation(prog,'pos'); }
-        if(!buf){ buf = gl.createBuffer(); }
-    }
+    var prog = makeProgram();
+    var locPos = gl.getAttribLocation(prog,'pos');
+    var locScale = gl.getUniformLocation(prog,'scale');
+    var buf = gl.createBuffer();
 
     var last=performance.now();
     function loop(){
         requestAnimationFrame(loop);
         var now=performance.now(); var dt=(now-last)/1000; last=now;
-        var dtYears = dt*50; // exaggerate timestep for visible movement
+        var dtYears = dt * SIM_SPEED_YRS_PER_SEC;
 
         try {
-            for(var i=0;i<stars.length;i++){
-                var dir = sub(vec3(0,0,0), stars[i].p);
-                var r = Math.max(len(dir), 0.05);
-                var aMag = G*centralMass/(r*r);
-                var a = mul(norm(dir), aMag);
-                stars[i].v = add(stars[i].v, mul(a, dtYears));
-            }
-            for(var j=0;j<stars.length;j++){
-                stars[j].p = add(stars[j].p, mul(stars[j].v, dtYears));
+            // Stable integration: subdivide dt into small steps (semi-implicit Euler)
+            var hMax = 0.01; // years per substep
+            var steps = Math.max(1, Math.ceil(dtYears / hMax));
+            var h = dtYears / steps;
+            for(var s=0;s<steps;s++){
+                for(var i=0;i<stars.length;i++){
+                    var dir = sub(vec3(0,0,0), stars[i].p);
+                    var r = Math.max(len(dir), 0.05);
+                    var aMag = G*centralMass/(r*r);
+                    var a = mul(norm(dir), aMag);
+                    stars[i].v = add(stars[i].v, mul(a, h));      // v_{t+h} = v_t + a*h
+                    stars[i].p = add(stars[i].p, mul(stars[i].v,h)); // x_{t+h} = x_t + v_{t+h}*h  (semi-implicit)
+                }
             }
 
-            ensureGLObjects();
+            // Auto-fit scale so everything stays visible
+            var rMax = 1.0;
+            for(var j=0;j<stars.length;j++){
+                var rj = len(stars[j].p);
+                if(rj > rMax) rMax = rj;
+            }
+            var scale = 0.9 / (rMax>0 ? rMax : 1.0); // 90% of view
+
+            // Upload & draw
             var pts = new Float32Array(stars.length*3);
             for(var k=0;k<stars.length;k++){
-                pts[3*k+0] = stars[k].p.x/10;
-                pts[3*k+1] = stars[k].p.y/10;
-                pts[3*k+2] = stars[k].p.z/10;
+                pts[3*k+0] = stars[k].p.x;
+                pts[3*k+1] = stars[k].p.y;
+                pts[3*k+2] = stars[k].p.z;
             }
-            gl.viewport(0,0,canvas.width,canvas.height);
             gl.clearColor(0,0,0,1);
             gl.clear(gl.COLOR_BUFFER_BIT);
             gl.useProgram(prog);
+            gl.uniform1f(locScale, scale);
             gl.bindBuffer(gl.ARRAY_BUFFER, buf);
             gl.bufferData(gl.ARRAY_BUFFER, pts, gl.DYNAMIC_DRAW);
             gl.enableVertexAttribArray(locPos);
             gl.vertexAttribPointer(locPos, 3, gl.FLOAT, false, 0, 0);
             gl.drawArrays(gl.POINTS, 0, stars.length);
 
-            metricsEl.textContent = "Version: v2.8.3-offline\nBodies: "+stars.length+"\nCentral mass: "+centralMass.toFixed(2)+" M_sun";
-            statusEl.textContent = "Running ✅";
+            metricsEl.textContent = "Version: v2.8.4-offline\nBodies: "+stars.length+"\nCentral mass: "+centralMass.toFixed(2)+" M_sun\nSpeed: "+SIM_SPEED_YRS_PER_SEC.toFixed(1)+" yrs/sec\nMax radius: "+rMax.toFixed(2)+" AU";
+            statusEl.textContent = "Rendering ✅ (auto-fit enabled)";
             statusEl.style.color = "#0f0";
         } catch(e){
             statusEl.textContent = "Error: "+e.message;
